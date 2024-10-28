@@ -1,0 +1,405 @@
+I-CAH Blood Pressure Analysis
+
+This file should be within your main directory of analysis. Within that directory should be a "bp_functions_folder" to store functions, and "bp_data_files_to_load" where files are saved and loaded. 
+
+```{r, load software packages}
+rm(list = ls())
+
+#we first establish the location of the working directory where we keep everything, depending on whether it exists (i.e. which computer we are using)
+#check C drive
+if(file.exists("C:/Users/User/Documents/NRL_R_work/iCAH_Adiposity_Rebound")){
+location_of_main_folder <-
+  "C:/Users/User/Documents/NRL_R_work/iCAH_Adiposity_Rebound"
+}
+
+#take the working directory otherwise, which should work every time
+if(!exists("location_of_main_folder")){
+  location_of_main_folder <- getwd()
+}
+
+#paste the name of our functions folder into the path name
+location_of_functions_folder <-
+  paste0(location_of_main_folder, "/bp_functions_folder/")
+
+#load the function that loads all the libraries and sources
+source(paste0(location_of_functions_folder, "load_bp_libraries_and_sources_function.R"))
+
+#paste together the location of the data files - we don't load in the first file, but we need this location for the end
+location_of_data_files <-
+  paste0(location_of_main_folder, "/bp_data_files_to_load/")
+
+#run the function, pointing it towards the functions folder
+load_bp_libraries_and_sources_function(
+  location_of_functions_folder=location_of_functions_folder,
+  location_of_data_files=location_of_data_files
+)
+```
+
+```{r, read in files and write column names for reference}
+bp_participants <- bp_participants_original <- 
+  read.csv("./2021-12-01 Data extraction for ICAH BP study/STUDY ID 202107_NL BP CAH/STUDY DATASET CAH for BP study 202107_NL.csv", header=T, na.strings="")
+
+write.csv(bp_participants_original, "bp_participants_original.csv")
+```
+
+```{r, create column names and missing data percentage files to refer to}
+column_names_and_missing_percentages_bp_participants <-
+  data.frame(
+    Column=colnames(bp_participants),
+    Percentage_complete=NA
+  )
+
+#create a loop to report the percentage complete
+for (i in 1:length(column_names_and_missing_percentages_bp_participants$Column)){
+  each_column <- column_names_and_missing_percentages_bp_participants[i,1]
+
+  column_names_and_missing_percentages_bp_participants[i,"Percentage_complete"] <- 
+    round(100*
+      sum(!is.na(bp_participants[,c(each_column)])) / 
+      length(bp_participants[,c(each_column)]), digits=1)
+}
+
+dir.create("Column_Names_and_missing_percentages")
+write.csv(column_names_and_missing_percentages_bp_participants, 
+          "./Column_Names_and_missing_percentages/colnames_and_missing_percentage_bp_participants.csv", 
+          row.names=F)
+```
+
+########################################
+Type of CAH
+########################################
+
+the non classic CAH response can go into another column that we call 'type_of_cah'. This can be created from 'Specify.the.actual.diagnosis...Details.of.Condition' which contains some information about salt wasters
+
+```{r, creation of type_of_cah column and correction of type_of_cah from barcelona}
+bp_participants$type_of_cah <- 
+  bp_participants$Specify.the.actual.diagnosis...Details.of.Condition
+
+#now we just correct for different spellings with grepl
+bp_participants$type_of_cah <-
+  ifelse(grepl(x=bp_participants$type_of_cah,
+               pattern="Satwasting" , ignore.case = TRUE),
+         "Salt_wasting",
+         bp_participants$type_of_cah)
+
+bp_participants$type_of_cah <-
+  ifelse(grepl(x=bp_participants$type_of_cah,
+               pattern="salt" , ignore.case = TRUE),
+         "Salt_wasting",
+         bp_participants$type_of_cah)
+
+bp_participants$type_of_cah <-
+  ifelse(grepl(x=bp_participants$type_of_cah,
+               pattern="virilising" , ignore.case = TRUE),
+         "Simple_virilising",
+         bp_participants$type_of_cah)
+
+bp_participants$type_of_cah <-
+  ifelse(grepl(x=bp_participants$type_of_cah,
+               pattern="late" , ignore.case = TRUE),
+         "Non_classic",
+         bp_participants$type_of_cah)
+
+bp_participants$type_of_cah <-
+  ifelse(grepl(x=bp_participants$type_of_cah,
+               pattern="non-classic" , ignore.case = TRUE),
+         "Non_classic",
+         bp_participants$type_of_cah)
+
+print("this frequency table shows the poor completion of this field:")
+
+freq(bp_participants$type_of_cah)
+
+```
+
+############################################
+Creation of manual correction columns and retention of original columns
+############################################
+
+Centres may be approached to manually correct outlying entries flagged as biologically or chronologically implausible
+
+Original columns are retained 
+
+```{r, creation of manually corrected columns for date, dob, height and weight and retention of original columns}
+bp_participants$manually_corrected_longitudinal_date <- 
+  bp_participants$Date...CAH.Longitudinal.Data
+
+bp_participants$manually_corrected_dob <- 
+  bp_participants$Date.of.birth...Birth
+
+bp_participants$manually_corrected_height <- 
+  bp_participants$Height..cm....CAH.Longitudinal.Data
+
+bp_participants$manually_corrected_weight <- 
+  bp_participants$Weight..kg....CAH.Longitudinal.Data
+
+bp_participants$Date...CAH.Longitudinal.Data_original <- 
+  bp_participants$Date...CAH.Longitudinal.Data
+
+bp_participants$Date.of.birth...Birth_original <- 
+  bp_participants$Date.of.birth...Birth
+
+bp_participants$Height..cm....CAH.Longitudinal.Data_original <- 
+  bp_participants$Height..cm....CAH.Longitudinal.Data
+
+bp_participants$Weight..kg....CAH.Longitudinal.Data_original <- 
+  bp_participants$Weight..kg....CAH.Longitudinal.Data
+
+bp_participants$BMI...CAH.Longitudinal.Data_original <- 
+  bp_participants$BMI...CAH.Longitudinal.Data
+```
+
+```{r, assessment of BMI in context of no data entry for height or weight}
+#in order to learn anything from the data field BMI, we would need BMI without weight or BMI without height
+bp_participants$bmi_without_weight <-
+  ifelse(!is.na(bp_participants$BMI...CAH.Longitudinal.Data) &
+           is.na(bp_participants$Weight..kg....CAH.Longitudinal.Data),
+         1,
+         0)
+sum(bp_participants$bmi_without_weight)
+
+bp_participants$bmi_without_height <-
+  ifelse(!is.na(bp_participants$BMI...CAH.Longitudinal.Data) &
+           is.na(bp_participants$Height..cm....CAH.Longitudinal.Data),
+         1,
+         0)
+sum(bp_participants$bmi_without_height)
+
+bp_participants_learn_from_bmi <-
+  subset(bp_participants, 
+         bmi_without_weight==1 | 
+         bmi_without_height==1)
+
+bp_participants_learn_from_bmi <-
+  subset(bp_participants, 
+         Register.ID...Record %in% bp_participants_learn_from_bmi$Register.ID...Record)
+
+bp_participants_learn_from_bmi <- 
+  bp_participants_learn_from_bmi[,c(
+  "Register.ID...Record",
+  "Decimal.age.at.visit..calculated.by.formula..YEARFRAC.DOB.DOV..",
+  "manually_corrected_height",
+  "Height..cm....CAH.Longitudinal.Data_original",
+  "manually_corrected_weight",
+  "Weight..kg....CAH.Longitudinal.Data_original",
+  "BMI...CAH.Longitudinal.Data"
+)]
+```
+
+```{r, back calculate height or weight from BMI if the former is missing}
+#if we have BMI and weight but we don't have height, then back calculate height
+bp_participants$manually_corrected_height <-
+  ifelse(!is.na(bp_participants$BMI...CAH.Longitudinal.Data) &
+          !is.na(bp_participants$Weight..kg....CAH.Longitudinal.Data) &
+          is.na(bp_participants$Height..cm....CAH.Longitudinal.Data),
+         100*(bp_participants$Weight..kg....CAH.Longitudinal.Data /
+          bp_participants$BMI...CAH.Longitudinal.Data)^0.5,
+  bp_participants$manually_corrected_height)
+
+#if we have BMI and height but we don't have weight, then back calculate weight
+bp_participants$manually_corrected_weight <-
+  ifelse(!is.na(bp_participants$BMI...CAH.Longitudinal.Data) &
+          !is.na(bp_participants$Height..cm....CAH.Longitudinal.Data) &
+          is.na(bp_participants$Weight..kg....CAH.Longitudinal.Data),
+         bp_participants$BMI...CAH.Longitudinal.Data *
+          ((bp_participants$Height..cm....CAH.Longitudinal.Data/100)^2),
+  bp_participants$manually_corrected_weight)
+
+#tell me how many we back calculated height for
+bp_participants$back_calculated_height <-
+  ifelse(!is.na(bp_participants$BMI...CAH.Longitudinal.Data) &
+          !is.na(bp_participants$Weight..kg....CAH.Longitudinal.Data) &
+          is.na(bp_participants$Height..cm....CAH.Longitudinal.Data),
+         1,
+  0)
+
+sum(bp_participants$back_calculated_height)
+
+#tell me how many we back calculated weight for
+bp_participants$back_calculated_weight <-
+  ifelse(!is.na(bp_participants$BMI...CAH.Longitudinal.Data) &
+          !is.na(bp_participants$Height..cm....CAH.Longitudinal.Data) &
+          is.na(bp_participants$Weight..kg....CAH.Longitudinal.Data),
+         1,
+  0)
+
+sum(bp_participants$back_calculated_weight)
+
+view_back_calculated_weight <- 
+  subset(bp_participants, back_calculated_weight==1)[,c(
+  "Register.ID...Record",
+  "Decimal.age.at.visit..calculated.by.formula..YEARFRAC.DOB.DOV..",
+  "manually_corrected_height",
+  "Height..cm....CAH.Longitudinal.Data_original",
+  "manually_corrected_weight",
+  "Weight..kg....CAH.Longitudinal.Data_original",
+  "BMI...CAH.Longitudinal.Data"
+)]
+
+view_back_calculated_height <- 
+  subset(bp_participants, back_calculated_height==1)[,c(
+  "Register.ID...Record",
+  "Decimal.age.at.visit..calculated.by.formula..YEARFRAC.DOB.DOV..",
+  "manually_corrected_height",
+  "Height..cm....CAH.Longitudinal.Data_original",
+  "manually_corrected_weight",
+  "Weight..kg....CAH.Longitudinal.Data_original",
+  "BMI...CAH.Longitudinal.Data"
+)]
+
+ggplot(data=subset(bp_participants, back_calculated_weight==1)) +
+  geom_point(aes(x=Decimal.age.at.visit..calculated.by.formula..YEARFRAC.DOB.DOV..,
+                 y=manually_corrected_weight))
+
+ggplot(data=subset(bp_participants, back_calculated_height==1)) +
+  geom_point(aes(x=Decimal.age.at.visit..calculated.by.formula..YEARFRAC.DOB.DOV..,
+                 y=manually_corrected_height))
+```
+
+############################################
+Updated dates of birth sent by Glasgow 10/04/2024
+############################################
+
+```{r, manual update of dates of birth from data controller read in as a CSV file}
+data_controller_update_2 <- 
+  read.csv("./Other Data Extractions/202107_NL BP study - revised DoBs 10.4.24.csv")
+
+bp_participants_with_update_2 <- 
+  dplyr::left_join(bp_participants, 
+                   data_controller_update_2, 
+                   by=c("Register.ID...Record"="id_revised"))
+
+print("check this number is zero to ensure no duplication at join:")
+nrow(bp_participants) - nrow(bp_participants_with_update_2)
+
+bp_participants <- bp_participants_with_update_2
+
+bp_participants$manually_corrected_dob <- 
+  ifelse(!is.na(bp_participants$dob_revised_10_04_2024), 
+         bp_participants$dob_revised_10_04_2024, 
+         bp_participants$manually_corrected_dob)
+
+update_date_of_birth_frame_view <- 
+  bp_participants[,c("dob_revised_10_04_2024",  
+                     "Date.of.birth...Birth")]
+```
+
+```{r, further manual update of dates of birth following clarification from data controller}
+data_controller_update_3 <- 
+  read.csv(
+    "./Other Data Extractions/DoB updates for new combined and rationalised list for NL.csv")
+
+bp_participants_with_update_3 <- 
+  dplyr::left_join(bp_participants, 
+                   data_controller_update_3, 
+                   by=c("Register.ID...Record"="id"))
+
+print("check this number is zero to ensure no duplication at join:")
+nrow(bp_participants) - nrow(bp_participants_with_update_3)
+
+bp_participants <- 
+  bp_participants_with_update_3
+
+bp_participants$manually_corrected_dob <- 
+  ifelse(!is.na(bp_participants$dob_revised_11_04_2024), 
+         bp_participants$dob_revised_11_04_2024, 
+         bp_participants$manually_corrected_dob)
+
+revised_dates_of_birth_to_view <- 
+  bp_participants[,c("dob_revised_11_04_2024",  
+                     "Date.of.birth...Birth")]
+```
+
+############################################
+Manual correction of dates of birth from centres by using previous extractions
+############################################
+
+```{r, manual update of dates of birth from data controller read in as a CSV file from 22042022}
+data_controller_update_1 <- 
+  read.csv("./Other Data Extractions/2022-04 Updated DOB from jillian.csv")
+
+data_controller_update_1$Date.of.birth...Birth <- NULL
+
+print("check these numbers are the same to ensure no duplication at join:")
+nrow(bp_participants)
+
+bp_participants_updated <- 
+  dplyr::left_join(bp_participants, 
+                   data_controller_update_1, 
+                   by=c("Register.ID...Record"="id", 
+                        "Centre.Name...Centre"="ï..Centre.Name...Centre"))
+
+nrow(bp_participants_updated)
+
+bp_participants <- 
+  bp_participants_updated
+
+bp_participants$manually_corrected_dob <- 
+  ifelse(!is.na(bp_participants$DOB.in.registry..22.4.22.), 
+                                                      bp_participants$DOB.in.registry..22.4.22., 
+                                                      bp_participants$manually_corrected_dob)
+
+bp_participants_updated_view <- 
+  bp_participants[,c(
+    "DOB.in.registry..22.4.22.",  
+    "Date.of.birth...Birth")]
+```
+
+############################################
+Adiposity rebound extraction dates of birth corrections
+############################################
+
+Further dates of birth update emailed over in February and March 2024
+
+```{r, read and combine updated DOBs following adiposity rebound extraction}
+#you shouldd directly reference the adiposity rebound extraction here, to prevent data duplication
+further_corrected_dobs <- 
+  read.csv("J:/External_cpu/R_work/iCAH_Adiposity_Rebound/Date_of_birth_responses/2024-03-04_Date_of_birth_responses.csv")
+
+#join this in 
+bp_participants_updated_2 <- 
+  dplyr::left_join(bp_participants, 
+                   further_corrected_dobs, 
+                   by=c("Register.ID...Record"="id"))
+
+print("This should be zero to ensure no duplication at join:")
+nrow(bp_participants) -    
+nrow(bp_participants_updated_2)                                   
+
+bp_participants <- 
+  bp_participants_updated_2
+
+#then if we have an updated dob, we can make the manually_corrected_dob the updated one
+bp_participants$manually_corrected_dob <- 
+  ifelse(!is.na(bp_participants$ar_confirmed_date_of_birth), 
+         bp_participants$ar_confirmed_date_of_birth, 
+         bp_participants$manually_corrected_dob)
+```
+
+###################################
+assessment of hypertension and antihypertensives columns
+###################################
+
+to flag people on antihypertensives, these columns were reviewed manually to ensure consistency and anyone who has any hint of treatment or diagnosis to be flagged
+
+```{r, creation of manuallycorrected columns related to hypertension}
+bp_participants$manually_corrected_hypertension_diagnosis_yes_no <-
+  bp_participants$Hypertension...Comorbid.Conditions.and.Surgery
+
+bp_participants$manually_corrected_hypertension_note <-
+  bp_participants$Hypertension.note...Comorbid.Conditions.and.Surgery
+
+bp_participants$manually_corrected_antihypertensives_yes_no <-
+  bp_participants$Antihypertensives...Current.Medication
+
+bp_participants$manually_corrected_antihypertensives_note <-
+  bp_participants$Antihypertensives.note...Current.Medication
+```
+
+```{r, end of file so save all the listed dataframes into the parent directory}
+save_bp_files_function(
+  parent_directory = location_of_data_files,
+  parent_file_name = "file_1")
+
+Sys.time()
+```

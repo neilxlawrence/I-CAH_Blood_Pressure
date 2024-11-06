@@ -1,0 +1,177 @@
+Load packages and reread files using the prebuilt load files function
+
+```{r, load software packages}
+rm(list = ls())
+
+#we first establish the location of the working directory where we keep everything, depending on whether it exists (i.e. which computer we are using)
+#check C drive
+if(file.exists("C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure")){
+location_of_main_folder <-
+  "C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure"
+}
+#take the working directory otherwise, which should work every time?
+if(!exists("location_of_main_folder")){
+  location_of_main_folder <- getwd()
+}
+#paste the name of our functions folder into the path name
+location_of_functions_folder <-
+  paste0(location_of_main_folder, "/bp_functions_folder/")
+
+#load the function that loads all the libraries and sources
+source(paste0(location_of_functions_folder, "load_bp_libraries_and_sources_function.R"))
+
+#paste together the location of the data files - we don't load in the first file, but we need this location for the end
+location_of_data_files <-
+  paste0(location_of_main_folder, "/bp_data_files_to_load/")
+
+#run the function, pointing it towards the functions folder
+load_bp_libraries_and_sources_function(
+  location_of_functions_folder=location_of_functions_folder,
+  location_of_data_files=location_of_data_files
+)
+
+print("Note we we only load longitudinal data to review if a visit date is also present in the longitudinal data, we DO NOT yet join the frames:")
+
+#we load the bp_participants just to compare dates of visits
+load_bp_files_function(previous_file_name = "file_4",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list("bp_labs_to_widen"))
+```
+
+```{r, log transformation}
+#give me a log value column 
+bp_labs_to_widen$log_value_number <-
+  log(bp_labs_to_widen$value_number)
+
+#after incorporating units from centres deleted from this code due to confidentiality we have a new data frame name:
+bp_labs_to_widen_with_units <- bp_labs_to_widen
+```
+
+```{r, create units_to_use}
+bp_labs_to_widen_with_units$units_to_use <- 
+  bp_labs_to_widen_with_units$units
+```
+
+```{r, declaration of missing units for androstenedione}
+#then declare 'missing' for anyone we still don't know that has a value
+bp_labs_to_widen_with_units$units_to_use <- 
+  ifelse(
+    bp_labs_to_widen_with_units$marker=="andostenedione"  &
+      is.na(bp_labs_to_widen_with_units$units_to_use) &
+      !is.na(bp_labs_to_widen_with_units$value_number), 
+    "missing",
+    bp_labs_to_widen_with_units$units_to_use
+)
+```
+
+```{r, declaration of any missing units 17ohp}
+#then declare 'missing' for anyone we still don't know that has a value
+bp_labs_to_widen_with_units$units_to_use <- 
+  ifelse(
+  bp_labs_to_widen_with_units$marker=="ohp17"  &
+    is.na(bp_labs_to_widen_with_units$units_to_use) &
+    !is.na(bp_labs_to_widen_with_units$value_number), 
+  "missing",
+  bp_labs_to_widen_with_units$units_to_use
+)
+
+```
+
+we now need to make sure the columns are appropriate types of variables
+
+```{r, tidy up variable types in the bp_labs_to_widen_with_units frame}
+bp_labs_to_widen_with_units$marker <- 
+  as.character(bp_labs_to_widen_with_units$marker)
+
+bp_labs_to_widen_with_units$result <- 
+  as.character(bp_labs_to_widen_with_units$result)
+
+bp_labs_to_widen_with_units$raw_lab_entry <- 
+  bp_labs_to_widen_with_units$value
+
+bp_labs_to_widen_with_units$labs_centre_name <- 
+  as.character(bp_labs_to_widen_with_units$labs_centre_name)
+
+bp_labs_to_widen_with_units$units_to_use <- 
+  as.character(bp_labs_to_widen_with_units$units_to_use)
+```
+
+now before we work this frame, we want to create a version of it that just has the important columns and none of the working columns
+
+```{r, rationalise columns}
+bp_labs_to_widen <- 
+  bp_labs_to_widen_with_units
+
+bp_labs_to_widen$date_and_time <- NULL
+
+bp_labs_to_widen$value <- NULL
+
+bp_labs_to_widen$value_limit <- NULL
+
+bp_labs_to_widen$value_units <- NULL
+
+bp_labs_to_widen$units <- NULL
+
+bp_labs_to_widen$value_number_test <- NULL
+
+bp_labs_to_widen$value_number_comma <- NULL
+
+bp_labs_to_widen$value_number_point <- NULL
+
+bp_labs_to_widen$number_corrected_for_commas <- NULL
+
+bp_labs_to_widen$first_contact_17ohp_units <- NULL
+
+bp_labs_to_widen$first_contact_androstenedione_units <- NULL
+
+bp_labs_to_widen$Unit.confirmation.Renin <- NULL
+
+bp_labs_to_widen$Unit.confirmation.plasma.renin.activity <- NULL
+
+bp_labs_to_widen$visit_date <- NULL
+
+bp_labs_to_widen$result <- NULL
+
+bp_labs_to_widen$labs_centre_name <- NULL
+```
+
+```{r, assess our frequencies of units - recreate individual frames to be able to assess after all manual corrections}
+#use the bp_labs_to_widen_with_units frame that has all of the columns still
+long_17OHP_only <-
+  subset(bp_labs_to_widen_with_units, marker=="ohp17")
+long_androstenedione_only <-
+  subset(bp_labs_to_widen_with_units, marker=="andostenedione")
+long_renin_only <-
+  subset(bp_labs_to_widen_with_units, marker=="renin")
+long_plasma_renin_activity_only <-
+  subset(bp_labs_to_widen_with_units, marker=="plasma_renin_activity")
+
+freq(long_17OHP_only$units_to_use)
+freq(long_androstenedione_only$units_to_use)
+freq(long_renin_only$units_to_use)
+freq(long_plasma_renin_activity_only$units_to_use)
+
+freq(long_plasma_renin_activity_only$labs_centre_name)
+
+sum(is.na(long_17OHP_only$value_number))
+sum(is.na(long_androstenedione_only$value_number))
+sum(is.na(long_renin_only$value_number))
+sum(is.na(long_plasma_renin_activity_only$value_number))
+
+long_17OHP_only_complete <- 
+  subset(long_17OHP_only, is.na(value_number))
+long_androstenedione_only_complete <- 
+  subset(long_androstenedione_only, is.na(value_number))
+long_renin_only_complete <- 
+  subset(long_renin_only, is.na(value_number))
+long_plasma_renin_activity_only_complete <- 
+  subset(long_plasma_renin_activity_only, is.na(value_number))
+```
+
+```{r, end of file so save all the listed dataframes into the parent directory}
+save_bp_files_function(
+  parent_directory=location_of_data_files,
+  parent_file="file_5")
+
+Sys.time()
+```

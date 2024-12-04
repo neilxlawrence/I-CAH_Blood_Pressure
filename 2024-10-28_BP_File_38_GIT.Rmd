@@ -1,0 +1,256 @@
+this file prepares data for joint modelling by lagging doses and then subsetting the file again into those of different age ranges for the purposes of sensitivity analyses
+
+```{r, load packages}
+rm(list = ls())
+
+#we first establish the location of the working directory where we keep everything, depending on whether it exists (i.e. which computer we are using)
+#check C drive
+if(file.exists("C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure")){
+location_of_main_folder <-
+  "C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure"
+}
+#take the working directory otherwise, which should work every time?
+if(!exists("location_of_main_folder")){
+  location_of_main_folder <- 
+    getwd()
+}
+#paste the name of our functions folder into the path name
+location_of_functions_folder <-
+  paste0(location_of_main_folder, "/bp_functions_folder/")
+
+#load the function that loads all the libraries and sources
+source(paste0(location_of_functions_folder, "load_bp_libraries_and_sources_function.R"))
+
+#paste together the location of the data files - we don't load in the first file, but we need this location for the end
+location_of_data_files <-
+  paste0(location_of_main_folder, "/bp_data_files_to_load/")
+
+#run the function, pointing it towards the functions folder
+load_bp_libraries_and_sources_function(
+  location_of_functions_folder=location_of_functions_folder,
+  location_of_data_files=location_of_data_files
+)
+
+load_bp_files_function(previous_file_name = "file_21",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list(
+    #we take the number of imputations that we defined when running JOMO:
+                                   "number_of_imputations"))
+
+
+load_bp_files_function(previous_file_name = "file_36",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list(
+    "bp_data_under_twenty"
+    )
+)
+
+library(brms)
+```
+
+```{r, setup up bootstrapping patient lists}
+#we will bootstrap through by selecting patients and giving them new ids with every resample. This will have the disadvantage of each bootstrap replication set being of a different length, but we are bootstrapping estimates
+all_ids_under_twenty <- 
+  unique(bp_data_under_twenty$id)
+
+#we also have to do it separately for all ids one to twenty, to remove anyone who didn't have any data before the age of 1
+all_ids_one_to_twenty <- 
+  unique(subset(bp_data_under_twenty, age_to_use >=1)$id)
+
+#we also have to do it separately for all ids under five, to remove anyone who didn't have any data before the age of 5
+all_ids_under_five <- 
+  unique(subset(bp_data_under_twenty, age_to_use <5)$id)
+
+#we also have to do it separately for all ids one to five, to remove anyone who didn't have any data before the age of 1
+all_ids_one_to_five <- 
+  unique(subset(bp_data_under_twenty, age_to_use >=1 & age_to_use <5)$id)
+
+#%% Number of bootstrap replications
+number_of_bootstraps <- 10
+#number_of_bootstraps <- 3
+
+id_bootstrap_list_under_twenty <-
+  vector("list", number_of_bootstraps)
+#set the seed for consistent bootstrapping
+set.seed(1983)
+# Perform the bootstrap sampling
+for (i in 1:number_of_bootstraps) {
+  id_bootstrap_list_under_twenty[[i]] <- 
+    as.character(sample(all_ids_under_twenty, 
+           length(all_ids_under_twenty), 
+           replace = TRUE))
+}
+
+#do it again for those one to twenty
+
+id_bootstrap_list_one_to_twenty <-
+  vector("list", number_of_bootstraps)
+#set the seed for consistent bootstrapping
+set.seed(1983)
+# Perform the bootstrap sampling
+for (i in 1:number_of_bootstraps) {
+  id_bootstrap_list_one_to_twenty[[i]] <- 
+    as.character(sample(all_ids_one_to_twenty, 
+           length(all_ids_one_to_twenty), 
+           replace = TRUE))
+}
+
+#you can have a look at an example of what we have in this data frame called example:
+example_list_of_ids_one_to_twenty <- 
+  as.data.frame(id_bootstrap_list_one_to_twenty[[2]])
+
+#we then create a separate bootstrap frame every time we run the model within each imputation set
+
+
+#do it again for those under five
+
+id_bootstrap_list_under_five <-
+  vector("list", number_of_bootstraps)
+#set the seed for consistent bootstrapping
+set.seed(1983)
+# Perform the bootstrap sampling
+for (i in 1:number_of_bootstraps) {
+  id_bootstrap_list_under_five[[i]] <- 
+    as.character(sample(all_ids_under_five, 
+           length(all_ids_under_five), 
+           replace = TRUE))
+}
+
+#you can have a look at an example of what we have in this data frame called example:
+example_list_of_ids_under_five <- 
+  as.data.frame(id_bootstrap_list_under_five[[2]])
+
+
+#do it again for those one to  five
+
+id_bootstrap_list_one_to_five <-
+  vector("list", number_of_bootstraps)
+#set the seed for consistent bootstrapping
+set.seed(1983)
+# Perform the bootstrap sampling
+for (i in 1:number_of_bootstraps) {
+  id_bootstrap_list_one_to_five[[i]] <- 
+    as.character(sample(all_ids_one_to_five, 
+           length(all_ids_one_to_five), 
+           replace = TRUE))
+}
+
+#you can have a look at an example of what we have in this data frame called example:
+example_list_of_ids_under_five <- 
+  as.data.frame(id_bootstrap_list_under_five[[2]])
+
+#we then create a separate bootstrap frame every time we run the model within each imputation set
+```
+
+```{r, ensure our data frame is appropriately ordered to allow lagging}
+bp_data_under_twenty <- 
+  bp_data_under_twenty[order(
+    bp_data_under_twenty$id,
+    bp_data_under_twenty$visit_date),] 
+```
+
+```{r, lag the id to compare to when we lag to ensure we dont lag into another patient}
+bp_data_under_twenty$lag_id <-
+  lag(bp_data_under_twenty$id)
+```
+
+```{r, lag fludrocortisone dose}
+bp_data_under_twenty$total_daily_fludro_prior_to_clinic <-
+  lag(bp_data_under_twenty$total_daily_fludro_dose_with_zero_carried_to_use)
+#correct for different id
+bp_data_under_twenty$total_daily_fludro_prior_to_clinic <-
+  ifelse(bp_data_under_twenty$id !=
+           bp_data_under_twenty$lag_id,
+         NA,
+         bp_data_under_twenty$total_daily_fludro_prior_to_clinic)
+
+#compare the amount of data we have now we lose the previous one
+descr(bp_data_under_twenty$total_daily_fludro_dose_with_zero_carried_to_use)
+descr(bp_data_under_twenty$total_daily_fludro_prior_to_clinic)
+```
+
+```{r, calculate dose of fludro per body surface area}
+bp_data_under_twenty$total_daily_fludro_prior_to_clinic_per_current_bsa <-
+  bp_data_under_twenty$total_daily_fludro_prior_to_clinic / 
+  bp_data_under_twenty$body_surface_area_using_interpolations
+
+descr(bp_data_under_twenty$total_daily_fludro_prior_to_clinic_per_current_bsa)
+```
+
+
+```{r, lag glucocorticoid dose}
+bp_data_under_twenty$total_daily_gluco_prior_to_clinic <-
+  lag(bp_data_under_twenty$total_daily_hydrocortisone_equivalent_at_visit)
+#correct for different id
+bp_data_under_twenty$total_daily_gluco_prior_to_clinic <-
+  ifelse(bp_data_under_twenty$id !=
+           bp_data_under_twenty$lag_id,
+         NA,
+         bp_data_under_twenty$total_daily_gluco_prior_to_clinic)
+
+#compare the amount of data we have now we lose the previous one
+descr(bp_data_under_twenty$total_daily_hydrocortisone_equivalent_at_visit)
+descr(bp_data_under_twenty$total_daily_gluco_prior_to_clinic)
+```
+
+```{r, calculate dose of fludro per body surface area}
+bp_data_under_twenty$total_daily_gluco_prior_to_clinic_per_current_bsa <-
+  bp_data_under_twenty$total_daily_gluco_prior_to_clinic / 
+  bp_data_under_twenty$body_surface_area_using_interpolations
+
+descr(bp_data_under_twenty$total_daily_gluco_prior_to_clinic_per_current_bsa)
+```
+
+
+
+```{r, lag salt dose}
+bp_data_under_twenty$total_daily_salt_prior_to_clinic <-
+  lag(bp_data_under_twenty$total_daily_salt_dose_with_zero_carried_to_use)
+#correct for different id
+bp_data_under_twenty$total_daily_salt_prior_to_clinic <-
+  ifelse(bp_data_under_twenty$id !=
+           bp_data_under_twenty$lag_id,
+         NA,
+         bp_data_under_twenty$total_daily_salt_prior_to_clinic)
+
+#compare the amount of data we have now we lose the previous one
+descr(bp_data_under_twenty$total_daily_salt_dose_with_zero_carried_to_use)
+descr(bp_data_under_twenty$total_daily_salt_prior_to_clinic)
+```
+
+
+```{r, calculate dose of salt per body surface area}
+bp_data_under_twenty$total_daily_salt_prior_to_clinic_per_current_bsa <-
+  bp_data_under_twenty$total_daily_salt_prior_to_clinic / 
+  bp_data_under_twenty$body_surface_area_using_interpolations
+
+descr(bp_data_under_twenty$total_daily_salt_prior_to_clinic_per_current_bsa)
+```
+
+
+```{r, create a data set of one_to_twenty}
+bp_data_one_to_twenty <-
+  subset(bp_data_under_twenty, age_to_use >= 1)
+```
+
+```{r, create a data set of under five as per causal inference abstract and request of nils for salt}
+bp_data_under_five <-
+  subset(bp_data_under_twenty, age_to_use < 5)
+```
+
+```{r, create a data set of one_to_five}
+bp_data_one_to_five <-
+  subset(bp_data_under_five, age_to_use >= 1)
+```
+
+```{r, clear variables to prevent unnecessary saves}
+#the number of imputations comes from an earlier file so make sure we don't duplicate the save by removing it
+rm(number_of_imputations)
+```
+
+```{r, end of file so save all the listed dataframes into the parent directory}
+save_bp_files_function(
+  parent_directory=location_of_data_files,
+  parent_file="file_38")
+Sys.time()
+```

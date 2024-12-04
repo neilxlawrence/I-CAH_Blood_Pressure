@@ -1,0 +1,369 @@
+Load packages and reread files using the prebuilt load files function
+
+```{r, load packages}
+rm(list = ls())
+
+#we first establish the location of the working directory where we keep everything, depending on whether it exists (i.e. which computer we are using)
+#check C drive
+if(file.exists("C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure")){
+location_of_main_folder <-
+  "C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure"
+}
+#take the working directory otherwise, which should work every time?
+if(!exists("location_of_main_folder")){
+  location_of_main_folder <- 
+    getwd()
+}
+#paste the name of our functions folder into the path name
+location_of_functions_folder <-
+  paste0(location_of_main_folder, "/bp_functions_folder/")
+
+#load the function that loads all the libraries and sources
+source(paste0(location_of_functions_folder, "load_bp_libraries_and_sources_function.R"))
+
+#paste together the location of the data files - we don't load in the first file, but we need this location for the end
+location_of_data_files <-
+  paste0(location_of_main_folder, "/bp_data_files_to_load/")
+
+#run the function, pointing it towards the functions folder
+load_bp_libraries_and_sources_function(
+  location_of_functions_folder=location_of_functions_folder,
+  location_of_data_files=location_of_data_files
+)
+
+load_bp_files_function(previous_file_name = "file_19",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list("bp_data"))
+```
+
+```{r, calculate body surface area}
+print("Now that we have all our interpolated heights and weights, we can calcuate body surface area")
+sum(!is.na(bp_data$interpolated_height))
+sum(!is.na(bp_data$interpolated_weight))
+```
+
+```{r, Standardise the doses of salt for weight}
+print("Our original doses of salt were, in some cases, reported as doses per kg. We've therefore waited until we have interpolated weight to convert these back to a standard dose. This gives us a final column of total_daily_salt_dose_with_zero_carried_to_use in grams")
+
+descr(bp_data$converted_salt_mass_with_zero_carried_to_use)
+descr(bp_data$converted_salt_mass_with_zero)
+sum(!is.na((bp_data$converted_salt_mass_with_zero_carried_to_use)))
+sum(!is.na((bp_data$converted_salt_per_kg_or_absolute_carried_to_use)))
+freq(bp_data$converted_salt_per_kg_or_absolute_carried_to_use)
+
+#start off with those  'per_kg' by multiplying by their weight
+bp_data$total_daily_salt_dose_with_zero_carried_to_use <- 
+  ifelse(bp_data$converted_salt_per_kg_or_absolute_carried_to_use=="per_kg",
+           bp_data$interpolated_weight *
+           bp_data$converted_salt_mass_with_zero_carried_to_use,
+         NA)
+
+#then insert the converted salt mass
+bp_data$total_daily_salt_dose_with_zero_carried_to_use <- 
+  ifelse(bp_data$converted_salt_per_kg_or_absolute_carried_to_use=="absolute" |
+           is.na(bp_data$converted_salt_per_kg_or_absolute_carried_to_use),
+           bp_data$converted_salt_mass_with_zero_carried_to_use,
+         bp_data$total_daily_salt_dose_with_zero_carried_to_use)
+
+descr(bp_data$total_daily_salt_dose_with_zero_carried_to_use)
+
+patients_we_lose <- subset(bp_data,
+            is.na(total_daily_salt_dose_with_zero_carried_to_use) & 
+              !is.na(converted_salt_mass_with_zero_carried_to_use))
+
+patients_we_lose <-
+  patients_we_lose[,c(
+    "id_visit_date",
+    "age_to_use",
+    "interpolated_weight",
+    "interpolated_height",
+    "total_daily_salt_dose_with_zero_carried_to_use",
+    "converted_salt_mass_with_zero_carried_to_use",
+    "converted_salt_per_kg_or_absolute_carried_to_use"
+  )]
+
+print("Interrogating those frames we see that we lose patient 4512 because they don't have any height or weight measurements. ")
+```
+
+```{r, perform the same conversion on salt on the column that wasnt carried forward to ensure we can compare imputed versus complete cases in our descriptives and modelling}
+#start off with those  'per_kg' by multiplying by their weight
+bp_data$total_daily_salt_dose_with_zero <- 
+  ifelse(bp_data$converted_salt_per_kg_or_absolute=="per_kg",
+           bp_data$interpolated_weight *
+           bp_data$converted_salt_mass_with_zero,
+         NA)
+
+#then insert the converted salt mass
+bp_data$total_daily_salt_dose_with_zero <- 
+  ifelse(bp_data$converted_salt_per_kg_or_absolute=="absolute" |
+           is.na(bp_data$converted_salt_per_kg_or_absolute),
+           bp_data$converted_salt_mass_with_zero,
+         bp_data$total_daily_salt_dose_with_zero)
+
+descr(bp_data$total_daily_salt_dose_with_zero)
+
+patients_we_lose <- subset(bp_data,
+            is.na(total_daily_salt_dose_with_zero_carried_to_use) & 
+              !is.na(converted_salt_mass_with_zero_carried_to_use))
+
+patients_we_lose <-
+  patients_we_lose[,c(
+    "id_visit_date",
+    "age_to_use",
+    "interpolated_weight",
+    "interpolated_height",
+    "total_daily_salt_dose_with_zero_carried_to_use",
+    "converted_salt_mass_with_zero_carried_to_use",
+    "converted_salt_per_kg_or_absolute_carried_to_use"
+  )]
+
+print("Interrogating those frames we see that we lose patient 4512 because they don't have any height or weight measurements. ")
+
+```
+
+
+
+```{r, use the package 'anthro' to calculate z scores for patients aged 5 to 19}
+#please note
+bp_data$sex_1_for_M_2_for_F <-
+  as.numeric(bp_data$sex_1_for_M_2_for_F)
+
+negative_ages <- subset(bp_data, age_to_use <0)
+positive_ages <- subset(bp_data, age_to_use >=0)
+                        
+if (nrow(negative_ages>0))    {
+  print("Alert! ALert! You have some negative ages. Please manually check the frame negative_ages and work to correct. This code now simply and bluntly removes any visit with a negative age")
+  bp_data <- subset(bp_data, age_to_use >=0)
+}                    
+
+who_z_scores_5_to_19 <-
+  anthroplus::anthroplus_zscores(
+   sex =                as.numeric(bp_data$sex_1_for_M_2_for_F),
+   age_in_months =      (bp_data$age_to_use * 12),
+   weight_in_kg =             bp_data$interpolated_weight,
+   height_in_cm =             bp_data$interpolated_height
+)
+
+```
+
+```{r, remove unhelpful variables and rename variables from who package anthroplus}
+colnames(who_z_scores_5_to_19)
+
+names(who_z_scores_5_to_19)[names(who_z_scores_5_to_19)=="csex"] <- 
+  "sex"
+
+who_z_scores_5_to_19$coedema <- NULL
+
+names(who_z_scores_5_to_19)[names(who_z_scores_5_to_19)=="cbmi"] <- 
+  "bmi"
+
+names(who_z_scores_5_to_19)[names(who_z_scores_5_to_19)=="zhfa"] <- 
+  "who_z_height_for_age"
+
+names(who_z_scores_5_to_19)[names(who_z_scores_5_to_19)=="zwfa"] <- 
+  "who_z_weight_for_age"
+
+names(who_z_scores_5_to_19)[names(who_z_scores_5_to_19)=="zbfa"] <- 
+  "who_z_bmi_for_age"
+
+names(who_z_scores_5_to_19)[names(who_z_scores_5_to_19)=="fhfa"] <- 
+  "who_height_for_age_outlier_flag"
+
+names(who_z_scores_5_to_19)[names(who_z_scores_5_to_19)=="fwfa"] <- 
+  "who_weight_for_age_outlier_flag"
+
+names(who_z_scores_5_to_19)[names(who_z_scores_5_to_19)=="fbfa"] <- 
+  "who_bmi_for_age_outlier_flag"
+```
+
+```{r, bind those results for 5 to 19 into the main frame}
+bp_data_with_z_scores_5_to_19 <-
+  cbind(bp_data, who_z_scores_5_to_19)
+```
+
+```{r, use the package 'anthro' to calculate z scores for patients aged 0 to 5}
+bp_data$sex_1_for_M_2_for_F_numeric <- 
+  as.numeric(bp_data$sex_1_for_M_2_for_F)
+
+bp_data$agemons <- bp_data$age_to_use * 12
+
+who_z_scores_0_to_5 <- 
+  with( bp_data, 
+        anthro::anthro_zscores( 
+          sex = sex_1_for_M_2_for_F_numeric, 
+          age = agemons, 
+          weight = interpolated_weight, 
+          lenhei = interpolated_height, 
+          is_age_in_month = T ) )
+
+```
+
+```{r, rationalise who_z_scores_0_to_5}
+who_z_scores_0_to_5$clenhei <- NULL
+who_z_scores_0_to_5$cbmi  <- NULL
+who_z_scores_0_to_5$cmeasure  <- NULL
+who_z_scores_0_to_5$csex <- NULL 
+#zlen use this if we don't have a score and rationalise below
+#flen use this if we don't have a score and rationalise below 
+#zwei  use this if we don't have a score and rationalise below
+#fwei  use this if we don't have a score and rationalise below
+zwfl  <- NULL
+fwfl  <- NULL
+#zbmi  use this if we don't have a score and rationalise below
+#fbmi  use this if we don't have a score and rationalise below
+who_z_scores_0_to_5$zhc <- NULL 
+who_z_scores_0_to_5$fhc <- NULL 
+who_z_scores_0_to_5$zac <- NULL 
+who_z_scores_0_to_5$fac <- NULL 
+who_z_scores_0_to_5$zts <- NULL 
+who_z_scores_0_to_5$fts <- NULL 
+who_z_scores_0_to_5$zss <- NULL 
+who_z_scores_0_to_5$fss <- NULL
+```
+
+```{r, add in our z scores for 0 to 5}
+bp_data_with_z_scores_0_to_5 <-
+  cbind(
+    bp_data_with_z_scores_5_to_19,
+    who_z_scores_0_to_5
+  )
+
+```
+
+```{r, insert our z scores for 0 to 5 into the correct columns}
+bp_data_with_z_scores_0_to_5$who_z_height_for_age <-
+  ifelse(is.na(bp_data_with_z_scores_0_to_5$who_z_height_for_age),
+         bp_data_with_z_scores_0_to_5$zlen,
+         bp_data_with_z_scores_0_to_5$who_z_height_for_age)
+
+bp_data_with_z_scores_0_to_5$who_height_for_age_outlier_flag <-
+  ifelse(is.na(bp_data_with_z_scores_0_to_5$who_height_for_age_outlier_flag),
+         bp_data_with_z_scores_0_to_5$flen,
+         bp_data_with_z_scores_0_to_5$who_height_for_age_outlier_flag)
+
+bp_data_with_z_scores_0_to_5$who_z_weight_for_age <-
+  ifelse(is.na(bp_data_with_z_scores_0_to_5$who_z_weight_for_age),
+         bp_data_with_z_scores_0_to_5$zwei,
+         bp_data_with_z_scores_0_to_5$who_z_weight_for_age)
+
+bp_data_with_z_scores_0_to_5$who_weight_for_age_outlier_flag <-
+  ifelse(is.na(bp_data_with_z_scores_0_to_5$who_weight_for_age_outlier_flag),
+         bp_data_with_z_scores_0_to_5$fwei,
+         bp_data_with_z_scores_0_to_5$who_weight_for_age_outlier_flag)
+
+bp_data_with_z_scores_0_to_5$who_z_bmi_for_age <-
+  ifelse(is.na(bp_data_with_z_scores_0_to_5$who_z_bmi_for_age),
+         bp_data_with_z_scores_0_to_5$zbmi,
+         bp_data_with_z_scores_0_to_5$who_z_bmi_for_age)
+
+bp_data_with_z_scores_0_to_5$who_bmi_for_age_outlier_flag <-
+  ifelse(is.na(bp_data_with_z_scores_0_to_5$who_bmi_for_age_outlier_flag),
+         bp_data_with_z_scores_0_to_5$fbmi,
+         bp_data_with_z_scores_0_to_5$who_bmi_for_age_outlier_flag)
+```
+
+```{r, now we have used the 0 to 5 z scores and applied them, we can remove the original columns}
+bp_data_with_z_scores <-
+  bp_data_with_z_scores_0_to_5
+
+bp_data_with_z_scores$zlen <- NULL
+bp_data_with_z_scores$flen <- NULL
+bp_data_with_z_scores$zwei <- NULL
+bp_data_with_z_scores$fwei <- NULL
+bp_data_with_z_scores$zbmi <- NULL
+bp_data_with_z_scores$fbmi <- NULL
+
+```
+
+```{r, create a visual_check frame}
+visual_check <-
+  bp_data_with_z_scores[,c(
+    "id",
+    "age_to_use",
+    "gestational_age_number",
+    "interpolated_height",
+    "who_z_height_for_age",
+    "interpolated_weight",
+    "who_z_weight_for_age",
+    "bmi",
+    "who_z_bmi_for_age"
+  )]
+```
+
+
+
+```{r}
+bp_data <-
+  bp_data_with_z_scores
+
+descr(bp_data$who_z_height_for_age)
+descr(bp_data$who_z_weight_for_age)
+
+```
+
+calculate body surface area and bmi
+
+```{r, calculate variable body_surface_area_using_interpolations via mostella formula and bmi with all interpolated values}
+bp_data$body_surface_area_using_interpolations <- 
+  sqrt(bp_data$interpolated_height * 
+         bp_data$interpolated_weight /
+         3600)
+
+bp_data$bmi_using_interpolations <- 
+  bp_data$interpolated_weight / 
+    (bp_data$interpolated_height^2)
+```
+
+```{r, calculate variable body_surface_area_using_complete_case via mostella formula and bmi with just manually corrected values}
+bp_data$body_surface_area_using_complete_case <- 
+  sqrt(bp_data$manually_corrected_height * 
+         bp_data$manually_corrected_weight /
+         3600)
+
+bp_data$bmi_using_complete_case <- 
+  bp_data$manually_corrected_weight / 
+    (bp_data$manually_corrected_height ^ 2)
+```
+
+```{r, calculate medication doses per body surface area for all carried and interpolated values}
+#Now we have body surface area, we can calculate our doses per body surface area
+#glucocorticoids
+bp_data$imputed_total_daily_hydrocortisone_equivalent_per_bsa <-
+  bp_data$total_daily_hydrocortisone_equivalent_at_visit_carried_to_use / 
+  bp_data$body_surface_area_using_interpolations
+#mineralocorticoids
+bp_data$imputed_total_daily_fludrocortisone_per_bsa <-
+  bp_data$total_daily_fludro_dose_with_zero_carried_to_use / 
+  bp_data$body_surface_area_using_interpolations
+#salt
+bp_data$imputed_total_daily_salt_per_bsa <-
+  bp_data$total_daily_salt_dose_with_zero_carried_to_use / 
+  bp_data$body_surface_area_using_interpolations
+```
+
+
+```{r, calculate medication doses per body surface area for complete cases that have dose height and weight without carrying}
+#Now we have body surface area, we can calculate our doses per body surface area
+#glucocorticoids
+bp_data$complete_case_total_daily_hydrocortisone_equivalent_per_bsa <-
+  bp_data$total_daily_hydrocortisone_equivalent_at_visit / 
+  bp_data$body_surface_area_using_complete_case
+#mineralocorticoids
+bp_data$complete_case_total_daily_fludrocortisone_per_bsa <-
+  bp_data$total_daily_fludro_dose_with_zero / 
+  bp_data$body_surface_area_using_complete_case
+#salt
+bp_data$complete_case_total_daily_salt_per_bsa <-
+  bp_data$converted_salt_mass_with_zero / 
+  bp_data$body_surface_area_using_complete_case
+```
+
+
+
+
+```{r, end of file so save all the listed dataframes into the parent directory}
+save_bp_files_function(
+  parent_directory=location_of_data_files,
+  parent_file="file_20")
+Sys.time()
+```

@@ -1,0 +1,788 @@
+model_j
+
+z values to assess 17OHP
+
+```{r, load packages}
+rm(list = ls())
+
+#we first establish the location of the working directory where we keep everything, depending on whether it exists (i.e. which computer we are using)
+#check C drive
+if(file.exists("C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure")){
+location_of_main_folder <-
+  "C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure"
+}
+#take the working directory otherwise, which should work every time?
+if(!exists("location_of_main_folder")){
+  location_of_main_folder <- 
+    getwd()
+}
+#paste the name of our functions folder into the path name
+location_of_functions_folder <-
+  paste0(location_of_main_folder, "/bp_functions_folder/")
+
+#load the function that loads all the libraries and sources
+source(paste0(location_of_functions_folder, "load_bp_libraries_and_sources_function.R"))
+
+#paste together the location of the data files - we don't load in the first file, but we need this location for the end
+location_of_data_files <-
+  paste0(location_of_main_folder, "/bp_data_files_to_load/")
+
+#run the function, pointing it towards the functions folder
+load_bp_libraries_and_sources_function(
+  location_of_functions_folder=location_of_functions_folder,
+  location_of_data_files=location_of_data_files
+)
+
+load_bp_files_function(previous_file_name = "file_21",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list(
+    #we take the number of imputations that we defined when running JOMO:
+    "number_of_imputations"))
+
+
+load_bp_files_function(previous_file_name = "file_38",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list(
+    "bp_data_under_twenty",
+    "bp_data_one_to_twenty",
+    
+    "number_of_bootstraps",
+    
+    "id_bootstrap_list_under_twenty",
+    "id_bootstrap_list_one_to_twenty"
+    )
+)
+
+library(brms)
+```
+
+```{r, create empty frames to bind results to}
+#create a folder to save files in as we go through our loop
+dir.create("loop_files")
+#create some empty frames and lists to bind all imputed estimates to . Make the estimates a list because sometimes we might not have the group 'not assigned' in a certain bootstrap
+all_bootstrapped_estimates_model_j <- 
+  list(NULL)
+
+all_r2_systolic_model_j <-
+  data.frame(NULL)
+
+all_r2_diastolic_model_j <-
+  data.frame(NULL)
+
+all_predictions_complete_case_systolic_model_j <-
+  list(NULL)
+
+all_predictions_complete_case_diastolic_model_j <-
+  list(NULL)
+
+all_predictions_imputed_systolic_model_j <-
+  list(NULL)
+
+all_predictions_imputed_diastolic_model_j <-
+  list(NULL)
+
+#for the bootstrapped versions of datasets, we want to collect them in a list
+list_of_bootstrapped_data_to_model_of_each_imputation <-
+  list(NULL)
+
+#for our predictions for our bootstrapped imputed datasets we need to create lists as these will be of varying length
+list_of_all_predictions_from_bootstrapped_models <-
+  list(NULL)
+```
+
+```{r, set iterations and warmup}
+number_of_iterations <- 400
+number_of_warmup <- 200
+```
+
+
+
+```{r, fit a joint model with brms through all imputations without biomarkers}
+#we will loop around each imputation
+
+#we can limit the number of imputations for purposes of testing, or just use the total number of imputations
+number_of_imputations_to_run <- number_of_imputations
+#number_of_imputations_to_run <- 3
+
+for (imputation_number in 0:number_of_imputations_to_run){
+  
+  print(paste0("This is the beginning of imputation number: ",  imputation_number, " out of ", number_of_imputations_to_run))
+  
+#create our systolic outcome variable dependent upon imputation
+#systolic_outcome <-
+#  paste0("systolic_imputation_", imputation_number)
+#create our systolic outcome variable dependent upon imputation
+systolic_outcome <-
+  paste0("systolic_imp_z_score_", imputation_number)
+
+#create our diastolic outcome variable dependent upon imputation
+#diastolic_outcome <-
+#  paste0("diastolic_imputation_", imputation_number)
+#create our systolic outcome variable dependent upon imputation
+diastolic_outcome <-
+  paste0("diastolic_imp_z_score_", imputation_number)
+
+#create our renin independent variable dependent upon imputation
+ln_renin_predictor <-
+  paste0("ln_converted_renin_µIU_ml_imputation_", imputation_number)
+
+#create our 17OHp independent variable dependent upon imputation
+ln_17OHP_predictor <-
+  paste0("ln_converted_17OHP_nmol_l_imputation_", imputation_number)
+
+#create our androstenedione independent variable dependent upon imputation
+ln_androstenedione_predictor <-
+  paste0("ln_converted_androstenedione_nmol_l_imputation_", imputation_number)
+
+#take out all the variables that we want including dependent and independent variables
+
+data_to_bootstrap <-
+  (
+    data.frame(
+    bp_data_one_to_twenty[,"id"],
+    bp_data_one_to_twenty[,"id_visit_date"],
+    bp_data_one_to_twenty[,"Centre.Name...Centre"],
+    bp_data_one_to_twenty[,"age_to_use"],
+    bp_data_one_to_twenty[,"Sex.at.birth...Birth"],
+    bp_data_one_to_twenty[,systolic_outcome],
+    bp_data_one_to_twenty[,diastolic_outcome],
+#    bp_data_one_to_twenty[,"interpolated_height"],
+#    bp_data_one_to_twenty[,"interpolated_weight"],
+    bp_data_one_to_twenty[,"who_z_bmi_for_age"],
+#    bp_data_one_to_twenty[,"who_z_height_for_age"],
+#    bp_data_one_to_twenty[,"who_z_weight_for_age"],
+#    bp_data_one_to_twenty[,"total_daily_fludro_prior_to_clinic_per_current_bsa"],
+#    bp_data_one_to_twenty[,"total_daily_gluco_prior_to_clinic_per_current_bsa"],
+#    bp_data_one_to_twenty[,"total_daily_salt_prior_to_clinic_per_current_bsa"],
+#    bp_data_one_to_twenty[,ln_renin_predictor]#,
+    bp_data_one_to_twenty[,ln_17OHP_predictor],
+    bp_data_one_to_twenty[,ln_androstenedione_predictor]#,
+#    bp_data_one_to_twenty[,"total_daily_fludro_prior_to_clinic"],
+#    bp_data_one_to_twenty[,"total_daily_gluco_prior_to_clinic"],
+#    bp_data_one_to_twenty[,"total_daily_salt_prior_to_clinic"]
+  )
+)
+
+#define our independent variables to be consistent against both systolic and diastolic outcomes
+independent_variables_model_j <-
+    paste0(
+         "age_to_use",
+         " + ", 
+         "Sex.at.birth...Birth",
+         " + ", 
+         "who_z_bmi_for_age",
+         " + ", 
+#         "interpolated_weight",
+#         " + ", 
+#         "interpolated_height",
+#         " + ", 
+         ln_androstenedione_predictor,
+         " + ", 
+         ln_17OHP_predictor,
+#         " + ", 
+#         "total_daily_fludro_prior_to_clinic",
+#         " + ", 
+#         "total_daily_gluco_prior_to_clinic",
+#         " + ", 
+#         "total_daily_salt_prior_to_clinic",
+         " + ", 
+         "(age_to_use | Centre.Name...Centre)",
+         " + ", 
+         "(age_to_use | id)"
+         )
+
+#then create our formulas by pasting in front each outcome and a tilda to define a formula
+formula_1_model_j_text <-
+  paste0(systolic_outcome, 
+         " ~ ", 
+         independent_variables_model_j)
+
+formula_2_model_j_text <-
+  paste0(diastolic_outcome, 
+         " ~ ", 
+         independent_variables_model_j)
+
+# Define each formula for modelling the joint model by wrapping the text in the appropriate function from brms
+formula_1_model_j <- 
+  bf(formula_1_model_j_text)
+
+formula_2_model_j <- 
+  bf(formula_2_model_j_text)
+
+#bootstrap the model:
+#to then create the frame that you want to analyse, you pull each patient data separately, rename the id, then go to the next patient to pull in the list
+for (this_bootstrap_number in 1:number_of_bootstraps){
+
+  print(paste0("Running through imputation number: ",  
+               imputation_number, 
+               " out of ", 
+               number_of_imputations_to_run))
+  print(paste0("Bootstrap replication number is : ", 
+               this_bootstrap_number, 
+               " out of ", 
+               number_of_bootstraps))
+
+#start with an empty frame to add to
+data_to_model <- data.frame(NULL)
+
+#the way I've written this bootstrap it takes quite a while to create the actual bootstrap replication data, so when testing the loop here I only test through a small number of patients until it's ready 
+#%%for (row_number in 1:10){
+    for (row_number in 1:length(id_bootstrap_list_one_to_twenty[[this_bootstrap_number]])){
+     #take out the patient
+     id_to_pull <- 
+       (id_bootstrap_list_one_to_twenty[[this_bootstrap_number]][row_number])
+     #take out the patient data
+     patient_data_to_pull <-
+       subset(data_to_bootstrap, id==id_to_pull)
+     #replace the patient data patient label with the row_number that we are on
+      patient_data_to_pull$id <- 
+       row_number
+     #then bind the new bootstrapped patient data into the frame
+      data_to_model <-
+       rbind(
+         data_to_model,
+         patient_data_to_pull
+     )
+
+     #  print(paste0("Number of rows in this data_to_model_jrame:", nrow(data_to_model)))
+    #close the loop that creates the bootstrap replication data set  
+    }
+
+
+
+    #we now have data_to_model which is a bootsrap repliaction of this particular imputation number
+    #add that data frame to the list of data frames outside of the loop
+    list_of_bootstrapped_data_to_model_of_each_imputation[[length(
+       list_of_bootstrapped_data_to_model_of_each_imputation) + 1]] <- data_to_model
+
+
+    #now we have to make sure we have complete data, so we make it complete
+    complete_data_to_model <-
+      na.omit(data_to_model)
+
+  # Fit the joint model for this imputation and bootstrap replication
+  joint_model_j_this_bootstrap <- 
+   brm(formula_1_model_j + formula_2_model_j + set_rescor(TRUE),
+       data = complete_data_to_model,
+       family = gaussian(),
+        chains = 2,
+#%%try low iterations for testing      
+       iter = number_of_iterations, #2 iterations doesn't work, 10 iterations doesn't work
+#%%try warm up for testing      
+       warmup = number_of_warmup,
+       cores = 4
+       )
+
+#extract the outputs from the model
+summary_of_joint_model_j_this_bootstrap <-
+  summary(joint_model_j_this_bootstrap)
+
+#print the outputs from the model
+dir.create("loop_files/model_summaries")
+sink(paste0("loop_files/model_summaries/iterations_",
+            number_of_iterations,
+            "_model_j_imp_", 
+            imputation_number, 
+            "_boot_",
+            this_bootstrap_number,
+            ".txt"))
+print(summary_of_joint_model_j_this_bootstrap)
+sink()
+
+#pull out the fixed effects estimates from the model from the summary
+estimates_this_bootstrap <- 
+  summary_of_joint_model_j_this_bootstrap$fixed[1]
+
+#take out all of the random effects for centre
+#systolic random effects
+centre_systolic_intercept_sd_this_bootstrap <-
+  summary_of_joint_model_j_this_bootstrap$random$Centre.Name...Centre[1,1]
+centre_systolic_intercept_rhat_this_bootstrap <-
+  summary_of_joint_model_j_this_bootstrap$random$Centre.Name...Centre[1,5]
+centre_systolic_slope_sd_this_bootstrap <-
+  summary_of_joint_model_j_this_bootstrap$random$Centre.Name...Centre[2,1]
+centre_systolic_slope_rhat_this_bootstrap <-
+  summary_of_joint_model_j_this_bootstrap$random$Centre.Name...Centre[2,5]
+#diastolic random effects
+centre_diastolic_intercept_sd_this_bootstrap <-
+  summary_of_joint_model_j_this_bootstrap$random$Centre.Name...Centre[3,1]
+centre_diastolic_intercept_rhat_this_bootstrap <-
+  summary_of_joint_model_j_this_bootstrap$random$Centre.Name...Centre[3,5]
+centre_diastolic_slope_sd_this_bootstrap <-
+  summary_of_joint_model_j_this_bootstrap$random$Centre.Name...Centre[4,1]
+centre_diastolic_slope_rhat_this_bootstrap <-
+  summary_of_joint_model_j_this_bootstrap$random$Centre.Name...Centre[4,5]
+#correlated random effects
+centre_cor_effect_systolic_sd_this_bootstrap <-
+  summary_of_joint_model_j_this_bootstrap$random$Centre.Name...Centre[5,1]
+centre_cor_effect_systolic_rhat_this_bootstrap <-
+  summary_of_joint_model_j_this_bootstrap$random$Centre.Name...Centre[5,5]
+centre_cor_effect_diastolic_sd_this_bootstrap <-
+  summary_of_joint_model_j_this_bootstrap$random$Centre.Name...Centre[6,1]
+centre_cor_effect_diastolic_rhat_this_bootstrap <-
+  summary_of_joint_model_j_this_bootstrap$random$Centre.Name...Centre[6,5]
+
+#add our random effects to the frame
+#systolic random effects
+estimates_this_bootstrap["centre_systolic_intercept_sd","Estimate"] <- 
+  centre_systolic_intercept_sd_this_bootstrap
+estimates_this_bootstrap["centre_systolic_intercept_rhat","Estimate"] <- 
+  centre_systolic_intercept_rhat_this_bootstrap
+estimates_this_bootstrap["centre_systolic_slope_sd","Estimate"] <- 
+  centre_systolic_slope_sd_this_bootstrap
+estimates_this_bootstrap["centre_systolic_slope_rhat","Estimate"] <- 
+  centre_systolic_slope_rhat_this_bootstrap
+#diastolic random effects
+estimates_this_bootstrap["centre_diastolic_intercept_sd","Estimate"] <- 
+  centre_diastolic_intercept_sd_this_bootstrap
+estimates_this_bootstrap["centre_diastolic_intercept_rhat","Estimate"] <- 
+  centre_diastolic_intercept_rhat_this_bootstrap
+estimates_this_bootstrap["centre_diastolic_slope_sd","Estimate"] <- 
+  centre_diastolic_slope_sd_this_bootstrap
+estimates_this_bootstrap["centre_diastolic_slope_rhat","Estimate"] <- 
+  centre_diastolic_slope_rhat_this_bootstrap
+#correlated random effects
+estimates_this_bootstrap["centre_cor_effect_systolic_sd","Estimate"] <- 
+  centre_cor_effect_systolic_sd_this_bootstrap
+estimates_this_bootstrap["centre_cor_effect_systolic_rhat","Estimate"] <- 
+  centre_cor_effect_systolic_rhat_this_bootstrap
+estimates_this_bootstrap["centre_cor_effect_diastolic_sd","Estimate"] <- 
+  centre_cor_effect_diastolic_sd_this_bootstrap
+estimates_this_bootstrap["centre_cor_effect_diastolic_rhat","Estimate"] <- 
+  centre_cor_effect_diastolic_rhat_this_bootstrap
+
+
+#take out all of the random effects for id
+#systolic random effects
+id_systolic_intercept_sd_this_bootstrap <-
+  summary_of_joint_model_j_this_bootstrap$random$id[1,1]
+id_systolic_intercept_rhat_this_bootstrap <-
+  summary_of_joint_model_j_this_bootstrap$random$id[1,5]
+id_systolic_slope_sd_this_bootstrap <-
+  summary_of_joint_model_j_this_bootstrap$random$id[2,1]
+id_systolic_slope_rhat_this_bootstrap <-
+  summary_of_joint_model_j_this_bootstrap$random$id[2,5]
+#diastolic random effects
+id_diastolic_intercept_sd_this_bootstrap <-
+  summary_of_joint_model_j_this_bootstrap$random$id[3,1]
+id_diastolic_intercept_rhat_this_bootstrap <-
+  summary_of_joint_model_j_this_bootstrap$random$id[3,5]
+id_diastolic_slope_sd_this_bootstrap <-
+  summary_of_joint_model_j_this_bootstrap$random$id[4,1]
+id_diastolic_slope_rhat_this_bootstrap <-
+  summary_of_joint_model_j_this_bootstrap$random$id[4,5]
+#correlated random effects
+id_cor_effect_systolic_sd_this_bootstrap <-
+  summary_of_joint_model_j_this_bootstrap$random$id[5,1]
+id_cor_effect_systolic_rhat_this_bootstrap <-
+  summary_of_joint_model_j_this_bootstrap$random$id[5,5]
+id_cor_effect_diastolic_sd_this_bootstrap <-
+  summary_of_joint_model_j_this_bootstrap$random$id[6,1]
+id_cor_effect_diastolic_rhat_this_bootstrap <-
+  summary_of_joint_model_j_this_bootstrap$random$id[6,5]
+
+#add our random effects to the frame
+#systolic random effects
+estimates_this_bootstrap["id_systolic_intercept_sd","Estimate"] <- 
+  id_systolic_intercept_sd_this_bootstrap
+estimates_this_bootstrap["id_systolic_intercept_rhat","Estimate"] <- 
+  id_systolic_intercept_rhat_this_bootstrap
+estimates_this_bootstrap["id_systolic_slope_sd","Estimate"] <- 
+  id_systolic_slope_sd_this_bootstrap
+estimates_this_bootstrap["id_systolic_slope_rhat","Estimate"] <- 
+  id_systolic_slope_rhat_this_bootstrap
+#diastolic random effects
+estimates_this_bootstrap["id_diastolic_intercept_sd","Estimate"] <- 
+  id_diastolic_intercept_sd_this_bootstrap
+estimates_this_bootstrap["id_diastolic_intercept_rhat","Estimate"] <- 
+  id_diastolic_intercept_rhat_this_bootstrap
+estimates_this_bootstrap["id_diastolic_slope_sd","Estimate"] <- 
+  id_diastolic_slope_sd_this_bootstrap
+estimates_this_bootstrap["id_diastolic_slope_rhat","Estimate"] <- 
+  id_diastolic_slope_rhat_this_bootstrap
+#correlated random effects
+estimates_this_bootstrap["id_cor_effect_systolic_sd","Estimate"] <- 
+  id_cor_effect_systolic_sd_this_bootstrap
+estimates_this_bootstrap["id_cor_effect_systolic_rhat","Estimate"] <- 
+  id_cor_effect_systolic_rhat_this_bootstrap
+estimates_this_bootstrap["id_cor_effect_diastolic_sd","Estimate"] <- 
+  id_cor_effect_diastolic_sd_this_bootstrap
+estimates_this_bootstrap["id_cor_effect_diastolic_rhat","Estimate"] <- 
+  id_cor_effect_diastolic_rhat_this_bootstrap
+
+
+#number of patients that went into model
+number_of_patients_this_bootstrap <-
+  sum(!is.na(unique(complete_data_to_model$id)))
+
+#number of visits that went into model
+number_of_visits_this_bootstrap <-
+  nrow(complete_data_to_model)
+
+#add our number of visits and number of patients to the frame
+estimates_this_bootstrap["number_of_visits","Estimate"] <- number_of_visits_this_bootstrap
+estimates_this_bootstrap["number_of_patients","Estimate"] <- number_of_patients_this_bootstrap
+
+#add our number of iterations and warmup to the frame
+estimates_this_bootstrap["number_of_iterations","Estimate"] <- number_of_iterations
+estimates_this_bootstrap["number_of_warmup","Estimate"] <- number_of_warmup
+
+#pull out r2 this bootstrap
+r2_values_this_bootstrap <- 
+  bayes_R2(joint_model_j_this_bootstrap)
+
+#pull out the r2 separately for each outcome variable
+#systolic
+r2_value_systolic_this_imputation <-
+  data.frame(
+    imputation_number = imputation_number,
+    bootstrap_number = this_bootstrap_number,
+    r2_systolic = r2_values_this_bootstrap[1]
+    )
+#diastolic
+r2_value_diastolic_this_imputation <-
+  data.frame(
+    imputation_number = imputation_number,
+    bootstrap_number = this_bootstrap_number,
+    r2_diastolic = r2_values_this_bootstrap[2]
+    )
+
+#add the r2 outside of the loop to the list
+all_r2_systolic_model_j <-
+  rbind(all_r2_systolic_model_j,
+        r2_values_this_bootstrap[1])
+save(x=all_r2_systolic_model_j, 
+             file = paste0("loop_files/all_r2_systolic_model_j", 
+                           ".Rdata"), 
+             compress=F)
+
+all_r2_diastolic_model_j <-
+  rbind(all_r2_diastolic_model_j,
+        r2_values_this_bootstrap[2])
+save(x=all_r2_diastolic_model_j, 
+             file = paste0("loop_files/all_r2_diastolic_model_j", 
+                           ".Rdata"), 
+             compress=F)
+
+#add our r2 of each outcome to the frame
+estimates_this_bootstrap["r2_value_systolic",
+                         "Estimate"] <- 
+  r2_values_this_bootstrap[1]
+estimates_this_bootstrap["r2_value_diastolic",
+                         "Estimate"] <- 
+  r2_values_this_bootstrap[2]
+
+#add the estimates_this_bootstrap frame to a list outside of the loop
+all_bootstrapped_estimates_model_j[[length(
+  all_bootstrapped_estimates_model_j) + 1]] <- 
+  estimates_this_bootstrap
+
+#first thing we want to do is take 'imputation[number]' and '_imputation_[number]' out of each rowname of each data frame in the list
+#alter the names of the estimates to remove the imputation number
+for (i in 2:length(all_bootstrapped_estimates_model_j)){  
+
+  rownames(all_bootstrapped_estimates_model_j[[i]]) <- 
+    gsub(x=rownames(all_bootstrapped_estimates_model_j[[i]]),
+                                   pattern="_imputation_[0-9][0-9]",
+                                   replacement="")
+  rownames(all_bootstrapped_estimates_model_j[[i]]) <- 
+    gsub(x=rownames(all_bootstrapped_estimates_model_j[[i]]),
+                                   pattern="_imputation_[0-9]",
+                                   replacement="")
+
+  rownames(all_bootstrapped_estimates_model_j[[i]]) <- 
+    gsub(x=rownames(all_bootstrapped_estimates_model_j[[i]]),
+                                   pattern="_imp_z_score_[0-9][0-9]",
+                                   replacement="")
+  rownames(all_bootstrapped_estimates_model_j[[i]]) <- 
+    gsub(x=rownames(all_bootstrapped_estimates_model_j[[i]]),
+                                   pattern="_imp_z_score_[0-9]",
+                                   replacement="")
+  
+  rownames(all_bootstrapped_estimates_model_j[[i]]) <- 
+    gsub(x=rownames(all_bootstrapped_estimates_model_j[[i]]),
+                                   pattern="imputation[0-9][0-9]",
+                                   replacement="")
+  rownames(all_bootstrapped_estimates_model_j[[i]]) <- 
+    gsub(x=rownames(all_bootstrapped_estimates_model_j[[i]]),
+                                   pattern="imputation[0-9]",
+                                   replacement="")
+  
+  rownames(all_bootstrapped_estimates_model_j[[i]]) <- 
+    gsub(x=rownames(all_bootstrapped_estimates_model_j[[i]]),
+                                   pattern="imp_z_score[0-9][0-9]",
+                                   replacement="")
+  rownames(all_bootstrapped_estimates_model_j[[i]]) <- 
+    gsub(x=rownames(all_bootstrapped_estimates_model_j[[i]]),
+                                   pattern="imp_z_score[0-9]",
+                                   replacement="")
+  
+  rownames(all_bootstrapped_estimates_model_j[[i]]) <- 
+    gsub(x=rownames(all_bootstrapped_estimates_model_j[[i]]),
+                                   pattern="impzscore[0-9][0-9]",
+                                   replacement="")
+  rownames(all_bootstrapped_estimates_model_j[[i]]) <- 
+    gsub(x=rownames(all_bootstrapped_estimates_model_j[[i]]),
+                                   pattern="impzscore[0-9]",
+                                   replacement="")
+
+  rownames(all_bootstrapped_estimates_model_j[[i]]) <- 
+    gsub(x=rownames(all_bootstrapped_estimates_model_j[[i]]),
+                                   pattern="0_",
+                                   replacement="_")
+}
+
+#save the list of bootstrapped estimates
+save(x=all_bootstrapped_estimates_model_j, 
+             file = paste0("loop_files/all_bootstrapped_estimates_model_j", 
+                           ".Rdata"), 
+             compress=F)
+
+#here we can also write a file to csv for easy review half way through. Please note, a professional would put this in a function! I've just wrapped it in a lot of hashes as could be done after the whole loop, but it's nice to see the results as you go through
+####################################################################################################################################################################################################################################
+
+
+
+  
+#we want to start at the frame that uses imputations. This is 1 (empty beginning of list) + the number of bootstraps (which is the number of complete case analyses we have gone through) + 1 to start at the first imputed data sets
+#start fresh here each time - the loop will rerun, but we are collecting all of the results from the whole list so we start a fresh
+imputed_bootstrapped_results_model_j <- 
+  data.frame(NULL)
+if (length(all_bootstrapped_estimates_model_j) > (number_of_imputations_to_run+1)){
+for (i in (2+number_of_bootstraps):length(all_bootstrapped_estimates_model_j)){ 
+  for (j in 1:length(rownames(all_bootstrapped_estimates_model_j[[2]]))){
+
+  #take the number from each part of the list   
+   this_row_name <- 
+     (rownames(all_bootstrapped_estimates_model_j[[2]])[j])
+   
+   #We then take that row name and extract the corresponding coefficient from each. Take the mean and standard deviation and that will be the bootstrapped estimate and standard error
+  estimate_of_this_row <- 
+    all_bootstrapped_estimates_model_j[[i]][this_row_name, "Estimate"]
+#create a frame of the row name and it's estimate to add outside of the loop
+  results_to_add <- NULL
+  results_to_add <-
+    data.frame(
+      model_parameter = this_row_name,
+      estimate = estimate_of_this_row
+    )
+#add that frame outstide of the loop  
+  imputed_bootstrapped_results_model_j <-
+    rbind(imputed_bootstrapped_results_model_j, 
+          results_to_add)
+  
+  #whilst that seems clunky, it means that for any bootstrap where we don't have 'not-assigned' sex then we just get na
+#so we simply remove na:
+imputed_bootstrapped_results_model_j_no_na <-
+  na.omit(imputed_bootstrapped_results_model_j)
+#then we can dplyr summarise that frame
+
+bootstrapped_imputed_summary_results_model_j <-
+  imputed_bootstrapped_results_model_j_no_na %>%
+  group_by(model_parameter) %>%
+  dplyr::summarise(
+    mean_estimate = mean(estimate),
+    sem_estimate = sd(estimate),
+    replications_that_went_into_this_estimate = length(estimate)
+  )
+#then calculate our upper and lower confidence intervals
+bootstrapped_imputed_summary_results_model_j$lower <-
+  bootstrapped_imputed_summary_results_model_j$mean_estimate - 1.96 * bootstrapped_imputed_summary_results_model_j$sem_estimate
+bootstrapped_imputed_summary_results_model_j$upper <-
+  bootstrapped_imputed_summary_results_model_j$mean_estimate + 1.96 * bootstrapped_imputed_summary_results_model_j$sem_estimate
+
+#then give myself a column that says '*' if significant
+bootstrapped_imputed_summary_results_model_j$significant <-
+  ifelse(bootstrapped_imputed_summary_results_model_j$lower < 0 &
+           bootstrapped_imputed_summary_results_model_j$upper < 0 |
+         bootstrapped_imputed_summary_results_model_j$lower > 0 &
+           bootstrapped_imputed_summary_results_model_j$upper > 0,
+         "*",
+         "NS")
+#then write those to csv outside of the loop
+write.csv("loop_files/bootstrapped_imputed_summary_results_model_j.csv",
+          x=bootstrapped_imputed_summary_results_model_j)
+}
+}
+}
+
+#we then do all of that again to pull out our results from the complete_case imputation 0 estimates:
+#start fresh here each time - the loop will rerun, but we are collecting all of the results from the whole list so we start a fresh
+complete_case_bootstrapped_results_model_j <- 
+  data.frame(NULL)
+if (length(all_bootstrapped_estimates_model_j) > (number_of_bootstraps)){
+  for (i in (2):(1+number_of_bootstraps)){
+
+  for (j in 1:length(rownames(all_bootstrapped_estimates_model_j[[2]]))){
+
+#take the number from each part of the list   
+   this_row_name <- 
+     (rownames(all_bootstrapped_estimates_model_j[[2]])[j])
+   
+#again we have to remove the imputation number from that 
+   this_row_name <- 
+     gsub(x=this_row_name,
+          pattern="_imputation_[0-9][0-9]",
+          replacement="")
+   this_row_name <- 
+     gsub(x=this_row_name,
+          pattern="_imputation_[0-9]",
+          replacement="")
+   this_row_name <- 
+     gsub(x=this_row_name,
+          pattern="imputation[0-9][0-9]",
+          replacement="")
+   this_row_name <- 
+     gsub(x=this_row_name,
+          pattern="imputation[0-9]",
+          replacement="")
+   this_row_name <- 
+     gsub(x=this_row_name,
+          pattern="_imp_z_score_[0-9][0-9]",
+          replacement="")
+   this_row_name <- 
+     gsub(x=this_row_name,
+          pattern="_imp_z_score_[0-9]",
+          replacement="")
+   this_row_name <- 
+     gsub(x=this_row_name,
+          pattern="imp_z_score[0-9][0-9]",
+          replacement="")
+   this_row_name <- 
+     gsub(x=this_row_name,
+          pattern="imp_z_score[0-9]",
+          replacement="")
+   this_row_name <- 
+     gsub(x=this_row_name,
+          pattern="impzscore[0-9][0-9]",
+          replacement="")
+   this_row_name <- 
+     gsub(x=this_row_name,
+          pattern="impzscore[0-9]",
+          replacement="")
+
+   #We then take that row name and extract the corresponding coefficient from each. Take the mean and standard deviation and that will be the bootstrapped estimate and standard error
+  estimate_of_this_row <- 
+    all_bootstrapped_estimates_model_j[[i]][this_row_name, "Estimate"]
+
+  results_to_add <- NULL
+
+  results_to_add <-
+    data.frame(
+      model_parameter = this_row_name,
+      estimate = estimate_of_this_row
+    )
+  
+  complete_case_bootstrapped_results_model_j <-
+    rbind(complete_case_bootstrapped_results_model_j, 
+          results_to_add)
+  
+  complete_case_bootstrapped_results_model_j_no_na <-
+     na.omit(complete_case_bootstrapped_results_model_j)
+
+
+
+bootstrapped_complete_case_summary_results_model_j <-
+  complete_case_bootstrapped_results_model_j_no_na %>%
+  group_by(model_parameter) %>%
+  dplyr::summarise(
+    mean_estimate = mean(estimate),
+    sem_estimate = sd(estimate),
+    replications_that_went_into_this_estimate = n()
+  )
+
+
+bootstrapped_complete_case_summary_results_model_j$lower <-
+  bootstrapped_complete_case_summary_results_model_j$mean_estimate - 1.96 * bootstrapped_complete_case_summary_results_model_j$sem_estimate
+bootstrapped_complete_case_summary_results_model_j$upper <-
+  bootstrapped_complete_case_summary_results_model_j$mean_estimate + 1.96 * bootstrapped_complete_case_summary_results_model_j$sem_estimate
+
+
+bootstrapped_complete_case_summary_results_model_j$significant <-
+  ifelse(bootstrapped_complete_case_summary_results_model_j$lower < 0 &
+           bootstrapped_complete_case_summary_results_model_j$upper < 0 |
+         bootstrapped_complete_case_summary_results_model_j$lower > 0 &
+           bootstrapped_complete_case_summary_results_model_j$upper > 0,
+         "*",
+         "NS")
+write.csv("loop_files/bootstrapped_complete_case_summary_results_model_j.csv",
+          x=bootstrapped_complete_case_summary_results_model_j)
+  }
+  
+}
+
+
+
+
+
+
+#####################################################################################################################################################################################################################################################
+
+
+        
+#calculate the predictions for this imputation set
+predictions_this_imputation <- 
+  as.data.frame(predict(joint_model_j_this_bootstrap))
+
+#pull out the systolic and the diastolic separately
+predictions_systolic_this_imputation <-
+  as.data.frame(t(as.data.frame(predictions_this_imputation$Estimate.sys)))
+predictions_diastolic_this_imputation <-
+  as.data.frame(t(as.data.frame(predictions_this_imputation$Estimate.dia)))
+
+#if our imputation number is zero, then bind them to our collection of complete case predictions separately
+if (imputation_number==0){
+all_predictions_complete_case_systolic_model_j[[length(
+  all_predictions_complete_case_systolic_model_j) + 1]] <- predictions_systolic_this_imputation
+all_predictions_complete_case_diastolic_model_j[[length(
+  all_predictions_complete_case_diastolic_model_j) + 1]] <- predictions_diastolic_this_imputation
+save(x=all_predictions_complete_case_systolic_model_j, 
+             file = paste0("loop_files/all_predictions_complete_case_systolic_model_j", 
+                           ".Rdata"), 
+             compress=F)
+save(x=all_predictions_complete_case_diastolic_model_j, 
+             file = paste0("loop_files/all_predictions_complete_case_diastolic_model_j", 
+                           ".Rdata"), 
+             compress=F)
+}
+
+#if our imputation number is greater than zero, then add them to a list of our collection of predictions in the frame outside as the number of predictions will be different dependent upon the size of the bootstrapped data which will have variable visits
+if (imputation_number>0){
+all_predictions_imputed_systolic_model_j[[length(
+  all_predictions_imputed_systolic_model_j) + 1]] <- predictions_systolic_this_imputation
+all_predictions_imputed_diastolic_model_j[[length(
+  all_predictions_imputed_diastolic_model_j) + 1]] <- predictions_diastolic_this_imputation
+save(x=all_predictions_imputed_systolic_model_j, 
+             file = paste0("loop_files/all_predictions_imputed_systolic_model_j", 
+                           ".Rdata"), 
+             compress=F)
+save(x=all_predictions_imputed_diastolic_model_j, 
+             file = paste0("loop_files/all_predictions_imputed_diastolic_model_j", 
+                           ".Rdata"), 
+             compress=F)
+}
+
+}
+
+#close the loop for this bootstrap replication of this particular imputation
+}
+
+#close the for loop for the imputation number and go to the next imputation number:
+}
+```
+
+
+```{r, clear variables to prevent unnecessary saves}
+rm(number_of_imputations)
+rm(number_of_bootstraps)
+rm(id_bootstrap_under_twenty)
+rm(id_bootstrap_list_one_to_twenty)
+```
+
+
+```{r, end of file so save all the listed dataframes into the parent directory}
+save_bp_files_function(
+  parent_directory=location_of_data_files,
+  parent_file="file_48_model_j")
+Sys.time()
+```

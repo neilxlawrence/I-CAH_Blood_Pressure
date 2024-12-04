@@ -1,0 +1,152 @@
+This file fits an LMS height model to fema patients under 20
+
+```{r, load packages}
+rm(list = ls())
+
+#we first establish the location of the working directory where we keep everything, depending on whether it exists (i.e. which computer we are using)
+#check C drive
+if(file.exists("C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure")){
+location_of_main_folder <-
+  "C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure"
+}
+#take the working directory otherwise, which should work every time?
+if(!exists("location_of_main_folder")){
+  location_of_main_folder <- 
+    getwd()
+}
+#paste the name of our functions folder into the path name
+location_of_functions_folder <-
+  paste0(location_of_main_folder, "/bp_functions_folder/")
+
+#load the function that loads all the libraries and sources
+source(paste0(location_of_functions_folder, "load_bp_libraries_and_sources_function.R"))
+
+#paste together the location of the data files - we don't load in the first file, but we need this location for the end
+location_of_data_files <-
+  paste0(location_of_main_folder, "/bp_data_files_to_load/")
+
+#run the function, pointing it towards the functions folder
+load_bp_libraries_and_sources_function(
+  location_of_functions_folder=location_of_functions_folder,
+  location_of_data_files=location_of_data_files
+)
+
+
+load_bp_files_function(previous_file_name = "file_23",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list(
+    "bp_data_under_twenty_fema"
+    )
+)
+
+
+```
+
+
+```{r, extract normative height data from child growth 1990 childsds package}
+normative_height_data <- 
+  childsds::make_percentile_tab(ref = uk1990.ref, 
+                      item = "height", 
+                      perc = c(
+                        #2.5,
+                        10,
+                        50,
+                        90#,
+                        #97.5
+                        ), 
+                      stack = TRUE)
+```
+
+
+```{r, you cannot fit LMS with missing data, so remove missing height}
+bp_data_under_twenty_fema_complete_interpolated_height <-
+  subset(bp_data_under_twenty_fema, !is.na(interpolated_height))[,c(
+    "id_visit_date",
+    "interpolated_height",
+    "age_to_use"
+  )]
+```
+
+
+```{r, fit an lms model to fema height and predict lms z scores and overall centiles}
+lms_fema_height_model <- 
+  lms(y=interpolated_height, 
+      x=age_to_use , 
+      data=bp_data_under_twenty_fema_complete_interpolated_height)
+
+summary(lms_fema_height_model)
+
+coef(lms_fema_height_model)
+
+bp_data_under_twenty_fema$lms_z_height <- 
+  centiles.pred(lms_fema_height_model, 
+                xname="age_to_use",
+                xvalues=bp_data_under_twenty_fema$age_to_use ,
+                yval=bp_data_under_twenty_fema$interpolated_height, 
+                type="z-scores" )
+
+fema_lms_height_centiles <- 
+  data.frame(age_to_use= seq(0,20, by=0.1), interpolated_height= seq(0,200, by=1))
+
+fema_lms_height_centiles <- 
+  centiles.pred(lms_fema_height_model, 
+                xname="age_to_use",
+                xvalues=fema_lms_height_centiles$age_to_use ,
+                yval=fema_lms_height_centiles$interpolated_height, 
+                type="centiles" )
+```
+
+
+```{r, plot the centiles in femas with height values on same plot}
+specific_size =2
+specific_alpha=0.5
+fema_height_centile_plot <- 
+  ggplot(
+    data=fema_lms_height_centiles, aes(x=x)) +
+#  geom_line(aes(y=`0.4`))+
+  geom_line(aes(y=`10`), colour="darkblue", size=specific_size, alpha=specific_alpha)+
+  geom_line(aes(y=`25`), colour="black", size=specific_size, alpha=specific_alpha)+
+  geom_line(aes(y=`50`), colour="darkred", size=specific_size, alpha=specific_alpha)+
+  geom_line(aes(y=`75`), colour="black", size=specific_size, alpha=specific_alpha)+ 
+  geom_line(aes(y=`90`), colour="darkblue", size=specific_size, alpha=specific_alpha) +
+#  geom_line(aes(y=`99.6`)) +
+#can hash out these points if you don't want them:  
+  geom_point(data=bp_data_under_twenty_fema,
+    aes(x=age_to_use, 
+        y=interpolated_height)) + 
+  coord_cartesian(ylim=c(30,200)) +
+  #add in our normative data from WHO 1990 extracted from the childsds package
+  geom_line(data=subset(normative_height_data, sex=="female"), 
+                aes(x = age, y = value, group = variable),
+            linewidth=2,
+            linetype="longdash",
+            colour="black",
+            alpha=specific_alpha)  +
+  themepowerpoint
+
+fema_height_centile_plot
+
+#save our plot
+dir.create("LMS_plots")
+ggsave(filename=paste0("fema_height_centile_plot.tif"), 
+       path=paste0("LMS_plots"),
+       plot = fema_height_centile_plot, 
+       device="tiff",  
+       width=10, 
+       height=5, 
+       compression = "lzw", 
+       limitsize=F)
+
+print("LMS height z for fema under twenty are distributed:")
+descr(bp_data_under_twenty_fema$lms_z_height)
+```
+
+
+
+
+```{r, end of file so save all the listed dataframes into the parent directory}
+save_bp_files_function(
+  parent_directory=location_of_data_files,
+  parent_file="file_25")
+Sys.time()
+```

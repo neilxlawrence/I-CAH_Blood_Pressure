@@ -1,0 +1,86 @@
+Now we have done all of our LMS modelling, we can recombine the files. Remember we have some patients that were not assigned a sex after birth, where we will have to change their column names before binding
+
+```{r, load packages}
+rm(list = ls())
+
+#we first establish the location of the working directory where we keep everything, depending on whether it exists (i.e. which computer we are using)
+#check C drive
+if(file.exists("C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure")){
+location_of_main_folder <-
+  "C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure"
+}
+#take the working directory otherwise, which should work every time?
+if(!exists("location_of_main_folder")){
+  location_of_main_folder <- 
+    getwd()
+}
+#paste the name of our functions folder into the path name
+location_of_functions_folder <-
+  paste0(location_of_main_folder, "/bp_functions_folder/")
+
+#load the function that loads all the libraries and sources
+source(paste0(location_of_functions_folder, "load_bp_libraries_and_sources_function.R"))
+
+#paste together the location of the data files - we don't load in the first file, but we need this location for the end
+location_of_data_files <-
+  paste0(location_of_main_folder, "/bp_data_files_to_load/")
+
+#run the function, pointing it towards the functions folder
+load_bp_libraries_and_sources_function(
+  location_of_functions_folder=location_of_functions_folder,
+  location_of_data_files=location_of_data_files
+)
+
+load_bp_files_function(previous_file_name = "file_21",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list(#we take the number of imputations that we defined when running JOMO:
+                                   "number_of_imputations"))
+
+load_bp_files_function(previous_file_name = "file_23",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list(
+    "bp_data_under_twenty_not_assigned"
+    )
+)
+
+load_bp_files_function(previous_file_name = "file_30",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list(
+    "bp_data_under_twenty_male"
+    )
+)
+
+load_bp_files_function(previous_file_name = "file_34",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list(
+    "bp_data_under_twenty_fema"
+    )
+)
+
+```
+
+we first need to add columns to the not assigned frame
+```{r, add missing columns to the not assigned frame}
+# Step 1: Identify missing columns
+missing_cols <- setdiff(names(bp_data_under_twenty_male), names(bp_data_under_twenty_not_assigned))
+
+# Step 2: Add missing columns to df_small and fill with NA
+bp_data_under_twenty_not_assigned[missing_cols] <- NA
+```
+
+
+```{r, recombine our frames to recreate bp_data_under_twenty}
+bp_data_under_twenty <-
+  rbind(
+    bp_data_under_twenty_male,
+    bp_data_under_twenty_fema,
+    bp_data_under_twenty_not_assigned
+  )
+```
+
+```{r, end of file so save all the listed dataframes into the parent directory}
+save_bp_files_function(
+  parent_directory=location_of_data_files,
+  parent_file="file_36")
+Sys.time()
+```

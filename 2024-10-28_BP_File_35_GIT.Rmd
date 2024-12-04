@@ -1,0 +1,311 @@
+This file plots the fits of the LMS centiles for fema diastolic from the file before it
+
+```{r, note bayesian changepoint analysis is run later so we define change points manually here}
+rm(list = ls())
+
+fema_diastolic_change_age <- 7.0
+```
+
+```{r, load packages}
+
+#we first establish the location of the working directory where we keep everything, depending on whether it exists (i.e. which computer we are using)
+#check C drive
+if(file.exists("C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure")){
+location_of_main_folder <-
+  "C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure"
+}
+#take the working directory otherwise, which should work every time?
+if(!exists("location_of_main_folder")){
+  location_of_main_folder <- 
+    getwd()
+}
+#paste the name of our functions folder into the path name
+location_of_functions_folder <-
+  paste0(location_of_main_folder, "/bp_functions_folder/")
+
+#load the function that loads all the libraries and sources
+source(paste0(location_of_functions_folder, "load_bp_libraries_and_sources_function.R"))
+
+#paste together the location of the data files - we don't load in the first file, but we need this location for the end
+location_of_data_files <-
+  paste0(location_of_main_folder, "/bp_data_files_to_load/")
+
+#run the function, pointing it towards the functions folder
+load_bp_libraries_and_sources_function(
+  location_of_functions_folder=location_of_functions_folder,
+  location_of_data_files=location_of_data_files
+)
+
+load_bp_files_function(previous_file_name = "file_21",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list(#we take the number of imputations that we defined when running JOMO:
+                                   "number_of_imputations"))
+
+load_bp_files_function(previous_file_name = "file_34",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list(
+    "bp_data_under_twenty_fema",
+    "fema_lms_diastolic_centiles",
+    "fema_lms_diastolic_centiles_imputed_combined"
+    )
+)
+```
+
+```{r, create a directory for plots if it doesn't exist}
+dir.create("LMS_plots")
+```
+
+
+```{r, take normative data from package pedbp}
+bp_normative_data <- 
+  bp_parameters
+#create an age in years column in the normative data
+bp_normative_data$age_years <- 
+  bp_normative_data$age / 12
+```
+
+```{r, take normative data from package pedbp}
+#make the height percentile a character of sex and height for grouping purposes
+bp_normative_data$height_percentile_group <-
+  as.character(paste0(bp_normative_data$height_percentile, 
+                      "_", 
+                      bp_normative_data$fema))
+#take out just the 50th height centile
+bp_normative_data_male <- 
+  subset(bp_normative_data, 
+         male==1 &
+           height_percentile==50 |
+         male==1 &
+           is.na(height_percentile))
+
+bp_normative_data_fema <- 
+  subset(bp_normative_data, 
+         male==0 &
+           height_percentile==50 |
+         male==0 &
+           is.na(height_percentile))
+
+
+
+print("So we should focus on visualising 10, 25, 50, 75 and 90 for purposes of facilitating comparison to the normative data")
+
+normative_chart_fema_diastolic <- 
+  pedbp::bp_chart("dbp", male = 0, source = "nhlbi") + ylim(50,160) + xlim(0,240)
+normative_chart_fema_diastolic_data <- 
+  normative_chart_fema_diastolic$data  
+normative_chart_fema_diastolic_data$age_years <- 
+  normative_chart_fema_diastolic_data$age / 12
+```
+
+```{r, split our fema_lms_diastolic_centiles into imputed and original lms model fits}
+#we can then split into the imputed versus the original
+fema_lms_diastolic_centiles_complete_case_fits <-
+  subset(fema_lms_diastolic_centiles,
+         imputation_number==0)
+fema_lms_diastolic_centiles_imputed_fits <-
+  subset(fema_lms_diastolic_centiles,
+         imputation_number>0)
+```
+
+```{r, plot the imputed centiles in femas with diastolic values on same plot}
+specific_size = 1
+specific_alpha_central_lines= 0.5
+fema_diastolic_all_imputed_fits_centile_plot <- 
+  ggplot(
+    data=fema_lms_diastolic_centiles_imputed_fits, 
+    aes(x=age_to_use)) +
+#  geom_line(aes(y=`0.4`, group=imputation_number))+
+  geom_line(aes(y=`10`, group=imputation_number), colour="darkred", size=specific_size, alpha=specific_alpha_central_lines)+
+  geom_line(aes(y=`25`, group=imputation_number), colour="black", size=specific_size, alpha=specific_alpha_central_lines)+
+  geom_line(aes(y=`50`, group=imputation_number), colour="darkred", size=specific_size, alpha=specific_alpha_central_lines)+
+  geom_line(aes(y=`75`, group=imputation_number), colour="black", size=specific_size, alpha=specific_alpha_central_lines)+ 
+  geom_line(aes(y=`90`, group=imputation_number), colour="darkred", size=specific_size, alpha=specific_alpha_central_lines) +
+#  geom_line(aes(y=`99.6`, group=imputation_number)) +
+#can hash out these points if you don't want them:  
+  geom_point(data=bp_data_under_twenty_fema,
+    aes(y=diastolic_imputation_0), alpha=0.1) + 
+  coord_cartesian(ylim=c(0,200)) +
+  labs(
+    title="LMS centiles for diastolic blood pressure created from I-CAH",
+    subtitle="Female centiles at 2nd, 50th, 98th, all imputed datasets",
+    x="Age (years)",
+    y="Diastolic blood pressure (mmHg)"
+  ) +
+  themepowerpointtitle
+
+fema_diastolic_all_imputed_fits_centile_plot
+
+
+#save our plot
+ggsave(filename=paste0("fema_diastolic_all_imputed_fits_centile_plot.tif"), 
+       path=paste0("LMS_plots"),
+       plot = fema_diastolic_all_imputed_fits_centile_plot, 
+       device="tiff",  
+       width=10, 
+       height=5, 
+       compression = "lzw", 
+       limitsize=F)
+```
+
+```{r, plot the complete case centiles in femas and the calculated imputed centiles with diastolic values on same plot}
+specific_size =2
+specific_alpha_central_lines=0.5
+fema_diastolic_imputation_comparison_centile_plot <- 
+  ggplot(
+    data=fema_lms_diastolic_centiles_imputed_combined, 
+    aes(x=age_to_use)) +
+#  geom_line(aes(y=`0.4`))+
+  geom_line(aes(y=`10`), colour="darkred", size=specific_size, alpha=specific_alpha_central_lines)+
+  geom_line(aes(y=`25`), colour="black", size=specific_size, alpha=specific_alpha_central_lines)+
+  geom_line(aes(y=`50`), colour="darkred", size=specific_size, alpha=specific_alpha_central_lines)+
+  geom_line(aes(y=`75`), colour="black", size=specific_size, alpha=specific_alpha_central_lines)+ 
+  geom_line(aes(y=`90`), colour="darkred", size=specific_size, alpha=specific_alpha_central_lines) +
+#  geom_line(aes(y=`99.6`)) +
+#  geom_line(data=fema_lms_diastolic_centiles, aes(y=`0.4`))+
+  geom_line(data=fema_lms_diastolic_centiles_complete_case_fits, 
+            aes(y=`10`), linetype="dashed", colour="darkred", size=specific_size, alpha=specific_alpha_central_lines)+
+  geom_line(data=fema_lms_diastolic_centiles_complete_case_fits, 
+            aes(y=`25`), linetype="dashed", colour="black", size=specific_size, alpha=specific_alpha_central_lines)+
+  geom_line(data=fema_lms_diastolic_centiles_complete_case_fits, 
+            aes(y=`50`), linetype="dashed", colour="darkred", size=specific_size, alpha=specific_alpha_central_lines)+
+  geom_line(data=fema_lms_diastolic_centiles_complete_case_fits, 
+            aes(y=`75`), linetype="dashed", colour="black", size=specific_size, alpha=specific_alpha_central_lines)+ 
+  geom_line(data=fema_lms_diastolic_centiles_complete_case_fits, 
+            aes(y=`90`), linetype="dashed", colour="darkred", size=specific_size, alpha=specific_alpha_central_lines) +
+#  geom_line(aes(y=`99.6`)) +
+#can hash out these points if you don't want them:  
+  geom_point(data=bp_data_under_twenty_fema,
+    aes(y=diastolic_imputation_0), alpha=0.1) + 
+  coord_cartesian(ylim=c(0,200)) +
+  labs(
+    title="LMS centiles for diastolic blood pressure created from I-CAH",
+    subtitle="Original data (dashed), Imputed data combined with Rubin's rules (solid)",
+    x="Age (years)",
+    y="Diastolic blood pressure (mmHg)"
+  ) +
+  themepowerpointtitle
+
+fema_diastolic_imputation_comparison_centile_plot
+
+#save our plot
+ggsave(filename=paste0("fema_diastolic_imputation_comparison_centile_plot.tif"), 
+       path=paste0("LMS_plots"),
+       plot = fema_diastolic_imputation_comparison_centile_plot, 
+       device="tiff",  
+       width=10, 
+       height=5, 
+       compression = "lzw", 
+       limitsize=F)
+```
+
+```{r, plot the calculated imputed centiles overlaid upon normative data from normative 2017}
+specific_size =2
+specific_alpha_peripheral_lines=0.4
+specific_alpha_central_lines=0.8
+specific_alpha_points=0.1
+specific_normative_linewidth=1
+specific_normative_linetype="dashed"
+specific_vertical_linetype="longdash"
+specific_vertical_linewidth=2
+specific_vertical_line_alpha=0.5
+
+fema_diastolic_LMS_on_normative_centile_plot <- 
+  ggplot(
+    data=fema_lms_diastolic_centiles_imputed_combined, 
+    aes(x=age_to_use)) +
+  geom_vline(xintercept=fema_diastolic_change_age,
+             linetype=specific_vertical_linetype,
+             linewidth=specific_vertical_linewidth,
+             alpha=specific_vertical_line_alpha) +
+  geom_line(aes(y=`10`), 
+            colour="darkred", 
+            size=specific_size, 
+            alpha=specific_alpha_peripheral_lines)+
+  geom_line(aes(y=`50`), 
+            colour="darkred", 
+            size=specific_size, 
+            alpha=specific_alpha_central_lines)+
+  geom_line(aes(y=`90`), 
+            colour="darkred", 
+            size=specific_size, 
+            alpha=specific_alpha_peripheral_lines) +
+#put in the normative data last
+    geom_line(data=subset(normative_chart_fema_diastolic_data, p==0.1),
+            aes(x=age_years, 
+                y=mmHg),
+            colour="black",
+            linewidth=specific_normative_linewidth, 
+            linetype=specific_normative_linetype, 
+            alpha=specific_alpha_peripheral_lines)+
+    geom_line(data=subset(normative_chart_fema_diastolic_data, p==0.5),
+            aes(x=age_years, 
+                y=mmHg),
+            colour="black",
+            linewidth=specific_normative_linewidth, 
+            linetype=specific_normative_linetype, 
+            alpha=specific_alpha_central_lines)+
+    geom_line(data=subset(normative_chart_fema_diastolic_data, p==0.9),
+            aes(x=age_years, 
+                y=mmHg),
+            colour="black",
+            linewidth=specific_normative_linewidth, 
+            linetype=specific_normative_linetype, 
+            alpha=specific_alpha_peripheral_lines)+
+#  geom_line(aes(y=`99.6`)) +
+#can hash out these points if you don't want them:  
+  geom_point(data=bp_data_under_twenty_fema,
+    aes(y=diastolic_imputation_0), 
+    alpha=specific_alpha_points) + 
+#  coord_cartesian(ylim=c(50,180)) +
+    scale_x_continuous(name = "Age (years)",
+                     limits=c(0,20),
+    breaks=c(seq(0,20, by=5))) +
+  scale_y_continuous(name = "Diastolic blood pressure (mmHg)",
+                     limits=c(0,125),
+    breaks=c(seq(0,120, by=20))) +
+  labs(
+    title="LMS centiles for diastolic blood pressure created from I-CAH",
+    subtitle="Normative data normative 2017 (dashed), Imputed data combined with Rubin's rules (solid), vertical line is changepoint"
+  ) +
+  theme(panel.background = element_rect(fill="white", colour="azure2"), 
+                               legend.position = "none",
+                               panel.grid.major = element_line(colour="azure2") ,
+                               axis.line.x.bottom = element_line(colour="black") ,
+                               axis.line.y.left = element_line(colour="black") ,
+                               #plot.title = element_text(size=12, hjust=0.5),
+                               #plot.subtitle = element_text(size=9, hjust=0.5),
+                               plot.title = element_blank(),
+                               plot.subtitle = element_blank(),
+                               axis.text=element_text(size=12),
+                               axis.title=element_text(size=14, face="bold"),
+                               #change stuff for facet labels
+                               strip.background =element_rect(fill="black", colour="black"),
+                               strip.text = element_text(colour = 'white', size=12))
+
+fema_diastolic_LMS_on_normative_centile_plot +themepowerpointtitle
+
+#save our plot
+ggsave(filename=paste0("fema_diastolic_LMS_on_normative_centile_plot.tif"), 
+       path=paste0("LMS_plots"),
+       plot = fema_diastolic_LMS_on_normative_centile_plot, 
+       device="tiff",  
+       width=10, 
+       height=5, 
+       compression = "lzw", 
+       limitsize=F)
+```
+
+```{r, remove things to prevent unnecessary saves}
+rm(number_of_imputations)
+rm(bp_data_under_twenty_fema)
+rm(fema_lms_diastolic_centiles)
+rm(fema_lms_diastolic_centiles_imputed_combined)
+```
+
+
+```{r, end of file so save all the listed dataframes into the parent directory}
+save_bp_files_function(
+  parent_directory=location_of_data_files,
+  parent_file="file_35")
+Sys.time()
+```

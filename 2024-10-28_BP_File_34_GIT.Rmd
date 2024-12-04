@@ -1,0 +1,353 @@
+This file fits an LMS diastolic blood pressure model to fema patients under 20. This is now slightly more complicated because we have to fit it to each of our imputation sets
+
+```{r, load packages}
+rm(list = ls())
+
+#we first establish the location of the working directory where we keep everything, depending on whether it exists (i.e. which computer we are using)
+#check C drive
+if(file.exists("C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure")){
+location_of_main_folder <-
+  "C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure"
+}
+#take the working directory otherwise, which should work every time?
+if(!exists("location_of_main_folder")){
+  location_of_main_folder <- 
+    getwd()
+}
+#paste the name of our functions folder into the path name
+location_of_functions_folder <-
+  paste0(location_of_main_folder, "/bp_functions_folder/")
+
+#load the function that loads all the libraries and sources
+source(paste0(location_of_functions_folder, "load_bp_libraries_and_sources_function.R"))
+
+#paste together the location of the data files - we don't load in the first file, but we need this location for the end
+location_of_data_files <-
+  paste0(location_of_main_folder, "/bp_data_files_to_load/")
+
+#run the function, pointing it towards the functions folder
+load_bp_libraries_and_sources_function(
+  location_of_functions_folder=location_of_functions_folder,
+  location_of_data_files=location_of_data_files
+)
+
+load_bp_files_function(previous_file_name = "file_21",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list(#we take the number of imputations that we defined when running JOMO:
+                                   "number_of_imputations"))
+
+load_bp_files_function(previous_file_name = "file_32",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list(
+    "bp_data_under_twenty_fema"
+    )
+)
+```
+
+```{r, take normative data from package pedbp}
+bp_normative_data <- bp_parameters
+#create an age in years column in the normative data
+bp_normative_data$age_years <- 
+  bp_normative_data$age / 12
+```
+
+```{r, consider centiles available in normative data}
+print("The centiles we have in LMS output is:")
+print("0.4, 2, 10, 25, 50, 75, 90, 98, 99.6")
+
+print("Whereas in the normative data, we have a mean and SD. We could therefore want to recreate those centiles in the normative data. But we can also extract it directly from the package ")
+
+normative_chart_fema <- 
+  pedbp::bp_chart("dbp", male = 0, source = "nhlbi") + ylim(0,120) + xlim(0,240)
+normative_chart_fema
+normative_chart_fema_data <- normative_chart_fema$data  
+normative_chart_fema_data$age_years <- 
+  normative_chart_fema_data$age / 12
+print("The percentiles we then have available in the normative data are:")
+freq(normative_chart_fema_data$p)
+print("We therefore want to concentrate on visualising the 10th, 25th, 50th, 75th, 90th centiles")
+```
+
+```{r, take normative data from package pedbp}
+#make the height percentile a character of sex and height for grouping purposes
+bp_normative_data$height_percentile_group <-
+  as.character(paste0(bp_normative_data$height_percentile, 
+                      "_", 
+                      bp_normative_data$fema))
+#take out just the 50th height centile
+bp_normative_data_male <- 
+  subset(bp_normative_data, 
+         male==1 &
+           height_percentile==50 |
+         male==1 &
+           is.na(height_percentile))
+
+bp_normative_data_fema <- 
+  subset(bp_normative_data, 
+         male==0 &
+           height_percentile==50 |
+         male==0 &
+           is.na(height_percentile))
+
+
+
+print("So we should focus on visualising 10, 25, 50, 75 and 90 for purposes of facilitating comparison to the normative data")
+```
+
+```{r, fit an lms model to fema diastolic and predict lms z scores and overall centiles for each imputation}
+#create an empty centiles frame to bind to
+fema_lms_diastolic_centiles <- 
+  data.frame(NULL)
+#create an empty lms z scores frame to bind to
+individual_lms_z_all_imputations <-
+  data.frame(NULL)
+
+#loop through all of our imputations, including the original data column
+for (i in 0:number_of_imputations){
+
+print(paste0("This is imputation number : ", i))  
+
+#create the column name that contains the data we want to model    
+column_name_to_model_this_imputation <-
+  paste0("diastolic_imputation_", i)
+  
+# you cannot fit LMS with missing data, so remove missing diastolic and just keep the columns we need to model
+
+bp_data_under_twenty_fema_complete_diastolic_this_imputation <- 
+  bp_data_under_twenty_fema[!is.na(bp_data_under_twenty_fema[[column_name_to_model_this_imputation]]), ][,c(
+    "id_visit_date",
+    column_name_to_model_this_imputation,
+    "age_to_use"
+  )]
+
+data_to_model <-
+  data.frame(
+    diastolic_this_imputation=
+      bp_data_under_twenty_fema_complete_diastolic_this_imputation[,column_name_to_model_this_imputation][[1]],
+    age_to_use= bp_data_under_twenty_fema_complete_diastolic_this_imputation[,"age_to_use"][[1]])
+  
+lms_fema_diastolic_model_this_imputation <- 
+  lms(y=diastolic_this_imputation, 
+      x=age_to_use, 
+      data=data_to_model
+  )
+
+#sink the summary of each imputation model to a text file
+dir.create("LMS_model_text_outputs")
+dir.create("LMS_model_text_outputs/fema_diastolic_LMS_text_outputs")
+sink(paste0("LMS_model_text_outputs/fema_diastolic_LMS_text_outputs/fema_diastolic_imputation_",
+            i,
+            ".txt"))
+print("Summary:")
+class(lms_fema_diastolic_model_this_imputation)
+str(lms_fema_diastolic_model_this_imputation)
+#I'm getting a problem with summary, so skip it in my raw data
+#if (i>0){
+#summary(lms_fema_diastolic_model_this_imputation)
+#}
+print("For some reason the summary has stopped working for female diastolic, starting to throw the error Error in if (object$VC$surv.flex == FALSE) Vb <- object$Vb else Vb <- object$Vb.t : 
+  argument is of length zero. ")
+print("I never got to the bottom of this. I started to think it was something to do with loading the package mcp, but then I restarted the computer and tried running without loading that package. Weird. I don't think the summary is actually any use or helpful anyway though, but if you do want to pull something out you'd have to get to the bottom of that. Happened on 16/08/2024.")
+print("Coefficients:")
+coef(lms_fema_diastolic_model_this_imputation)
+sink()
+
+#we calculate the lms z score for this imputation. To do this we need to insert a slight hack, because z scores won't be calculated for anyone below 0.085 and anyone above 18
+#so we create an age column that simply massages numbers below and above that, purely for the sake of the z scores
+tweaked_ages_for_z_scores <-
+  data.frame(tweaked_ages_for_z_scores = bp_data_under_twenty_fema$age_to_use)
+tweaked_ages_for_z_scores$tweaked_ages_for_z_scores <-
+  ifelse(tweaked_ages_for_z_scores$tweaked_ages_for_z_scores <0.085,
+         0.085,
+         tweaked_ages_for_z_scores$tweaked_ages_for_z_scores)
+tweaked_ages_for_z_scores$tweaked_ages_for_z_scores <-
+  ifelse(tweaked_ages_for_z_scores$tweaked_ages_for_z_scores >18,
+         18,
+         tweaked_ages_for_z_scores$tweaked_ages_for_z_scores)
+
+bp_data_under_twenty_fema$lms_z_diastolic_this_imputation <- 
+  centiles.pred(lms_fema_diastolic_model_this_imputation, 
+                xname="age_to_use",
+                #we use our tweaked ages here just to ensure we get an LMS z score for everyone
+                xvalues=tweaked_ages_for_z_scores$tweaked_ages_for_z_scores ,
+                yval=bp_data_under_twenty_fema[,column_name_to_model_this_imputation][[1]], 
+                type="z-scores" )
+
+#transpose that column and collect it into the frame outside
+individual_lms_z_this_imputation_to_bind <-
+  t(bp_data_under_twenty_fema$lms_z_diastolic_this_imputation)
+
+#bind that to the column on the outside which collects each imputation, ready for it to average after the loop
+individual_lms_z_all_imputations <-
+  rbind(individual_lms_z_all_imputations ,
+       individual_lms_z_this_imputation_to_bind)
+
+#now rename the column to refer appropriately to the imputation number
+name_of_imputed_z_scores <-
+  paste0("lms_z_diastolic_imputation_", i)
+
+names(bp_data_under_twenty_fema)[
+  names(bp_data_under_twenty_fema)==
+    "lms_z_diastolic_this_imputation"] <- 
+  name_of_imputed_z_scores
+
+fema_lms_diastolic_centiles_this_imputation <- 
+  data.frame(age_to_use= seq(0,20, by=0.1), 
+             diastolic_this_imputation= seq(0,200, by=1))
+
+fema_lms_diastolic_centiles_this_imputation <- 
+  centiles.pred(lms_fema_diastolic_model_this_imputation, 
+                xname="age_to_use",
+                xvalues=fema_lms_diastolic_centiles_this_imputation$age_to_use ,
+                yval=fema_lms_diastolic_centiles_this_imputation$diastolic_this_imputation, 
+                type="centiles" )
+
+fema_lms_diastolic_centiles_this_imputation$imputation_number <-
+  i
+
+fema_lms_diastolic_centiles <-
+  rbind(fema_lms_diastolic_centiles,
+        fema_lms_diastolic_centiles_this_imputation)
+  
+}
+
+#rename the x column to age_to_use
+names(fema_lms_diastolic_centiles)[
+  names(fema_lms_diastolic_centiles)==
+    "x"] <- 
+  "age_to_use"
+
+#we can then split into the imputed versus the original
+fema_lms_diastolic_centiles_complete_case_fits <-
+  subset(fema_lms_diastolic_centiles,
+         imputation_number==0)
+fema_lms_diastolic_centiles_imputed_fits <-
+  subset(fema_lms_diastolic_centiles,
+         imputation_number>0)
+```
+
+```{r, combine the individual LMS z scores by rubin's rules}
+#we have the frame individual_lms_z_all_imputations that contains all of the calculated lms z scores transposed. 
+#we want to remove the top row, as that is the original data
+individual_lms_z_just_imputations <-
+  individual_lms_z_all_imputations[-1,]
+#then we average the imputations to create our overall imputed value
+individual_lms_z_rubins <-
+  individual_lms_z_just_imputations %>%
+  dplyr::summarise(across(everything(), \(x) mean(x, na.rm = TRUE)))
+#we then transpose it back again
+individual_lms_z_rubins_to_bind <-
+  data.frame(
+    lms_z_diastolic_rubin = t(individual_lms_z_rubins)
+  )
+#repair values of NaN within that column before binding it
+individual_lms_z_rubins_to_bind$lms_z_diastolic_rubin <-
+  ifelse(individual_lms_z_rubins_to_bind$lms_z_diastolic_rubin=="NaN",
+         NA,
+         individual_lms_z_rubins_to_bind$lms_z_diastolic_rubin)
+
+#because we had to tweak our ages, and we're not sure precisely why LMS has picked the numbers of less than 0.085 and more than 18 to not produce z scores, we need to check we have the same number of z scores as we do imputed values. 
+print("This number should be zero to reflect we have the appropriate number of calculated LMS z scores. If not, then you may need to tweak the age corrections to facilitate extrapolation of centiles within the frame tweaked_ages_for_z_scores")
+sum(!is.na(bp_data_under_twenty_fema$diastolic_imputation_1)) - 
+  sum(!is.na(individual_lms_z_rubins_to_bind$lms_z_diastolic_rubin))
+
+bp_data_under_twenty_fema_with_rubin <-
+  cbind(bp_data_under_twenty_fema, individual_lms_z_rubins_to_bind)
+```
+
+
+
+```{r, combine the imputed fit overall centiles by rubins rules}
+fema_lms_diastolic_centiles_imputed_combined <-
+  fema_lms_diastolic_centiles_imputed_fits %>%
+  group_by(age_to_use) %>%
+  dplyr::summarise(across(everything(), \(x) mean(x, na.rm = TRUE)))
+#get rid of the imputation number column now becaues it doesn't make sense
+fema_lms_diastolic_centiles_imputed_combined$imputation_number <- NULL
+#replace it with the number of imputations just for easy reference
+fema_lms_diastolic_centiles_imputed_combined$number_of_imputations <-
+  number_of_imputations
+```
+
+```{r, extract differences between LMS and normative values}
+digits_to_limit <- 1
+
+median_centile_diastolic_fema_differences <- 
+  data.frame(NULL)
+
+for (age_to_extract in c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18)){
+  frame_to_add <-
+    data.frame(
+      age = age_to_extract,
+      lms_median = 
+        formatC(round(subset(fema_lms_diastolic_centiles_imputed_combined, age_to_use == age_to_extract)$`50`,
+                      digits = digits_to_limit), format = "f", digits = digits_to_limit),
+      lms_tenth_to_ninetieth = paste0(
+        formatC(round(subset(fema_lms_diastolic_centiles_imputed_combined, age_to_use == age_to_extract)$`10`,
+                      digits = digits_to_limit), format = "f", digits = digits_to_limit),
+        " to ",
+        formatC(round(subset(fema_lms_diastolic_centiles_imputed_combined, age_to_use == age_to_extract)$`90`,
+                      digits = digits_to_limit), format = "f", digits = digits_to_limit)),
+      normative_median = 
+        formatC(round(subset(normative_chart_fema_data, age_years == age_to_extract & p == 0.5)$mmHg, 
+                      digits = digits_to_limit), format = "f", digits = digits_to_limit)
+    )
+  
+  frame_to_add$difference <-
+    formatC(round(as.numeric(frame_to_add$lms_median) - as.numeric(frame_to_add$normative_median), 
+                  digits = digits_to_limit), format = "f", digits = digits_to_limit)
+  
+  # Combine everything I want in my table
+  frame_to_add$concatenated <-
+    paste0(
+      frame_to_add$lms_median,
+      "\n (",
+      frame_to_add$lms_tenth_to_ninetieth,
+      ") \n[",
+      frame_to_add$difference,
+      "]"
+    )
+  
+  median_centile_diastolic_fema_differences <-
+    rbind(median_centile_diastolic_fema_differences,
+          frame_to_add)
+}
+
+
+dir.create("Blood_pressure_LMS_centiles_and_medians_and_differences")
+write.csv(
+  fema_lms_diastolic_centiles_imputed_combined,
+  "Blood_pressure_LMS_centiles_and_medians_and_differences/fema_lms_diastolic_centiles_imputed_combined.csv",
+  row.names = F
+)
+
+write.csv(
+  median_centile_diastolic_fema_differences,
+  "Blood_pressure_LMS_centiles_and_medians_and_differences/median_centile_diastolic_fema_differences.csv",
+  row.names = F
+)
+```
+
+```{r, rationalise our file name}
+bp_data_under_twenty_fema <-
+  bp_data_under_twenty_fema_with_rubin
+print("The final description of one of my imputed values:")
+descr(bp_data_under_twenty_fema$diastolic_imputation_1)
+print("And the LMS z scores via rubins rules which should centre around 0:")
+descr(bp_data_under_twenty_fema$lms_z_diastolic_rubin)
+
+view_different_z_diastolic_imputations <- 
+  bp_data_under_twenty_fema[,c(
+    "lms_z_diastolic_imputation_1",
+    "lms_z_diastolic_imputation_2",
+    "lms_z_diastolic_imputation_3"
+  )]
+```
+
+
+```{r, end of file so save all the listed dataframes into the parent directory}
+save_bp_files_function(
+  parent_directory=location_of_data_files,
+  parent_file="file_34")
+Sys.time()
+```

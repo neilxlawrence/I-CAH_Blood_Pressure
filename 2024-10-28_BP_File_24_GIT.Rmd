@@ -1,0 +1,196 @@
+This file fits an LMS height model to male patients under 20
+
+```{r, load packages}
+rm(list = ls())
+
+#we first establish the location of the working directory where we keep everything, depending on whether it exists (i.e. which computer we are using)
+#check C drive
+if(file.exists("C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure")){
+location_of_main_folder <-
+  "C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure"
+}
+#take the working directory otherwise, which should work every time?
+if(!exists("location_of_main_folder")){
+  location_of_main_folder <- 
+    getwd()
+}
+#paste the name of our functions folder into the path name
+location_of_functions_folder <-
+  paste0(location_of_main_folder, "/bp_functions_folder/")
+
+#load the function that loads all the libraries and sources
+source(paste0(location_of_functions_folder, "load_bp_libraries_and_sources_function.R"))
+
+#paste together the location of the data files - we don't load in the first file, but we need this location for the end
+location_of_data_files <-
+  paste0(location_of_main_folder, "/bp_data_files_to_load/")
+
+#run the function, pointing it towards the functions folder
+load_bp_libraries_and_sources_function(
+  location_of_functions_folder=location_of_functions_folder,
+  location_of_data_files=location_of_data_files
+)
+
+
+load_bp_files_function(previous_file_name = "file_23",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list(
+    "bp_data_under_twenty_male"
+    )
+)
+
+
+```
+
+```{r, extract normative height data from child growth 1990 childsds package}
+normative_height_data <- 
+  childsds::make_percentile_tab(ref = uk1990.ref, 
+                      item = "height", 
+                      perc = c(
+                        #2.5,
+                        10,
+                        50,
+                        90#,
+                        #97.5
+                        ), 
+                      stack = TRUE)
+```
+
+
+```{r, you cannot fit LMS with missing data, so remove missing height}
+bp_data_under_twenty_male_complete_interpolated_height <-
+  subset(bp_data_under_twenty_male, !is.na(interpolated_height))[,c(
+    "id_visit_date",
+    "interpolated_height",
+    "age_to_use"
+  )]
+```
+
+```{r, fit an lms model to male height and predict lms z scores and overall centiles}
+lms_male_height_model <- 
+  lms(y=interpolated_height, 
+      x=age_to_use , 
+      data=bp_data_under_twenty_male_complete_interpolated_height)
+
+summary(lms_male_height_model)
+
+coef(lms_male_height_model)
+
+bp_data_under_twenty_male$lms_z_height <- 
+  centiles.pred(lms_male_height_model, 
+                xname="age_to_use",
+                xvalues=bp_data_under_twenty_male$age_to_use ,
+                yval=bp_data_under_twenty_male$interpolated_height, 
+                type="z-scores" )
+
+male_lms_height_centiles <- 
+  data.frame(age_to_use= seq(0,20, by=0.1), interpolated_height= seq(0,200, by=1))
+
+male_lms_height_centiles <- 
+  centiles.pred(lms_male_height_model, 
+                xname="age_to_use",
+                xvalues=male_lms_height_centiles$age_to_use ,
+                yval=male_lms_height_centiles$interpolated_height, 
+                type="centiles" )
+```
+
+```{r, plot the centiles in males with height values on same plot}
+specific_size =2
+specific_alpha_lines=0.5
+specific_alpha_points=0.1
+male_height_centile_plot <- 
+  ggplot(
+    data=male_lms_height_centiles, aes(x=x)) +
+#  geom_line(aes(y=`0.4`))+
+  geom_line(aes(y=`10`), colour="darkblue", size=specific_size, alpha=specific_alpha_lines)+
+  geom_line(aes(y=`25`), colour="black", size=specific_size, alpha=specific_alpha_lines)+
+  geom_line(aes(y=`50`), colour="darkred", size=specific_size, alpha=specific_alpha_lines)+
+  geom_line(aes(y=`75`), colour="black", size=specific_size, alpha=specific_alpha_lines)+ 
+  geom_line(aes(y=`90`), colour="darkblue", size=specific_size, alpha=specific_alpha_lines) +
+#  geom_line(aes(y=`99.6`)) +
+#can hash out these points if you don't want them:  
+  geom_point(data=bp_data_under_twenty_male,
+    aes(x=age_to_use, 
+        y=interpolated_height), alpha=specific_alpha_points) + 
+  coord_cartesian(ylim=c(30,200)) +
+  #add in our normative data from WHO 1990 extracted from the childsds package
+  geom_line(data=subset(normative_height_data, sex=="male"), 
+                aes(x = age, y = value, group = variable),
+            linewidth=1.5,
+            linetype="longdash",
+            colour="black", 
+            alpha=specific_alpha_lines) +
+  themepowerpoint
+
+male_height_centile_plot
+
+
+
+#save our plot
+dir.create("LMS_plots")
+ggsave(filename=paste0("male_height_centile_plot.tif"), 
+       path=paste0("LMS_plots"),
+       plot = male_height_centile_plot, 
+       device="tiff",  
+       width=10, 
+       height=5, 
+       compression = "lzw", 
+       limitsize=F)
+```
+
+```{r, investigate outlier}
+#investigation of outlier
+#bp_data_under_twenty_male_over_12 <-
+#  subset(bp_data_under_twenty_male, age_to_use > 12)
+#bp_data_under_twenty_male_122 <-
+#  subset(bp_data_under_twenty_male, interpolated_height==122)
+#min(bp_data_under_twenty_male_over_12$interpolated_height, na.rm=T)
+print("LMS height z for male under twenty are distributed:")
+descr(bp_data_under_twenty_male$lms_z_height)
+
+print("Note that patient that is outlying has the information:
+wheel chair bound, vegetative life, patient receives Vit D supplementation, no formal assessment of bone mass has been done in his osteoporosis.note column")
+```
+
+
+
+```{r, plot normative centiles using the package childsds reference UK 1990}
+ggplot2::ggplot(normative_height_data, 
+                ggplot2::aes(x = age, y = value, colour = variable)) + 
+  ggplot2::geom_line() + ggplot2::facet_wrap(~ sex, nrow = 2)
+
+
+ggplot() + geom_line(data=subset(normative_height_data, sex=="male"), 
+                aes(x = age, y = value, group = variable))
+```
+
+```{r, plot normative centiles using the package childsds reference UK WHO}
+library(childsds)
+
+ptab_2 <- 
+  make_percentile_tab(ref = ukwho.ref, item = "height", perc = c(2.5,10,50,90,97.5), stack = TRUE)
+
+ggplot2::ggplot(data=ptab_2, 
+                ggplot2::aes(x = age, y = value, colour = variable)) + 
+  ggplot2::geom_line(data=ptab_2, 
+                ggplot2::aes(x = age, y = value, colour = variable)) + 
+  ggplot2::facet_wrap(~ sex, nrow = 2)
+
+```
+```{r, plot both to show they are exactly the same}
+ggplot2::ggplot(normative_height_data, 
+                ggplot2::aes(x = age, y = value, colour = variable)) + 
+  ggplot2::geom_line() + 
+  ggplot2::geom_line(data=ptab_2, 
+                ggplot2::aes(x = age, y = value, colour = variable)) + 
+  ggplot2::facet_wrap(~ sex, nrow = 2)
+```
+
+
+
+```{r, end of file so save all the listed dataframes into the parent directory}
+save_bp_files_function(
+  parent_directory=location_of_data_files,
+  parent_file="file_25")
+Sys.time()
+```

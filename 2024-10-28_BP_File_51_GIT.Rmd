@@ -1,0 +1,580 @@
+takes a model table as csv and slims it down to what we want
+
+```{r, load packages}
+rm(list = ls())
+
+#we first establish the location of the working directory where we keep everything, depending on whether it exists (i.e. which computer we are using)
+#check C drive
+if(file.exists("C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure")){
+location_of_main_folder <-
+  "C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure"
+}
+#take the working directory otherwise, which should work every time?
+if(!exists("location_of_main_folder")){
+  location_of_main_folder <- 
+    getwd()
+}
+#paste the name of our functions folder into the path name
+location_of_functions_folder <-
+  paste0(location_of_main_folder, "/bp_functions_folder/")
+
+#load the function that loads all the libraries and sources
+source(paste0(location_of_functions_folder, "load_bp_libraries_and_sources_function.R"))
+
+#paste together the location of the data files - we don't load in the first file, but we need this location for the end
+location_of_data_files <-
+  paste0(location_of_main_folder, "/bp_data_files_to_load/")
+
+#run the function, pointing it towards the functions folder
+load_bp_libraries_and_sources_function(
+  location_of_functions_folder=location_of_functions_folder,
+  location_of_data_files=location_of_data_files
+)
+
+load_bp_files_function(previous_file_name = "file_21",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list(
+    #we take the number of imputations that we defined when running JOMO:
+    "number_of_imputations"))
+
+
+load_bp_files_function(previous_file_name = "file_38",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list(
+    "bp_data_under_twenty",
+    "bp_data_one_to_twenty",
+    
+    "number_of_bootstraps",
+    
+    "id_bootstrap_list_under_twenty",
+    "id_bootstrap_list_one_to_twenty"
+    )
+)
+```
+
+```{r, define decimal places}
+decimal_places_main <- 3
+decimal_places_fit_statistics_and_random_effects <- 2
+```
+
+```{r, loop to make all model outputs neat and tidy}
+#create the directory to save into
+dir.create("neat_coefficient_tables")
+#loop around all of our models
+for (model_to_make_neat in c(
+  "model_a",
+  "model_b",
+  "model_c", 
+  "model_d",
+  "model_e",
+  "model_f", 
+  "model_g",
+  "model_h",
+  "model_i",
+  "model_j",
+  "model_k",
+  "model_l"
+)){
+
+#define the outcome type to distinguish absolute models from z-score models
+outcome_type <- "Absolute values"
+
+#manually define the outcome types here for each model - the pattern of my files is to do absolute values first, then the z score version
+outcome_type <- 
+ifelse(
+  model_to_make_neat==
+    "model_a" |
+  model_to_make_neat==
+    "model_c" |
+  model_to_make_neat==
+    "model_e" |
+  model_to_make_neat==
+    "model_g" |
+  model_to_make_neat==
+    "model_i" |
+  model_to_make_neat==
+    "model_k",
+  "Absolute values",
+  outcome_type
+)
+
+outcome_type <- 
+ifelse(
+  model_to_make_neat==
+    "model_b" |
+  model_to_make_neat==
+    "model_d" |
+  model_to_make_neat==
+    "model_f" |
+  model_to_make_neat==
+    "model_h" |
+  model_to_make_neat==
+    "model_j" |
+  model_to_make_neat==
+    "model_l",
+  "SD Score",
+  outcome_type
+)
+
+
+#load the table you want to make neat
+table_to_make_neat <-
+  read.csv(
+    paste0("J:/External_cpu/R_work/iCAH_Blood_pressure/loop_files/bootstrapped_imputed_summary_results_",
+           model_to_make_neat,
+           ".csv")
+  )
+
+
+#pull out systolic and diastolic results
+systolic_coefficients <-
+  subset(table_to_make_neat, 
+         grepl(x=model_parameter,
+               pattern="^systolic"))
+
+diastolic_coefficients <-
+  subset(table_to_make_neat, 
+         grepl(x=model_parameter,
+               pattern="^diastolic"))
+
+#pull out the number of patients that went into the model
+number_of_patients <-
+  subset(table_to_make_neat, 
+         grepl(x=model_parameter,
+               pattern="number_of_patients"))$mean_estimate
+#pull out the number of visits that went into the model
+number_of_visits <-
+  subset(table_to_make_neat, 
+         grepl(x=model_parameter,
+               pattern="number_of_visits"))$mean_estimate
+
+
+#pull out random effects
+systolic_random_intercept <-
+  subset(table_to_make_neat,
+         grepl(x=model_parameter,
+               pattern="centre_systolic_intercept_sd"))$mean_estimate
+systolic_random_slope <-
+  subset(table_to_make_neat,
+         grepl(x=model_parameter,
+               pattern="centre_systolic_slope_sd"))$mean_estimate
+
+diastolic_random_intercept <-
+  subset(table_to_make_neat,
+         grepl(x=model_parameter,
+               pattern="centre_diastolic_intercept_sd"))$mean_estimate
+diastolic_random_slope <-
+  subset(table_to_make_neat,
+         grepl(x=model_parameter,
+               pattern="centre_diastolic_slope_sd"))$mean_estimate
+
+#pull out the r2 and limits to make a confidence interval
+systolic_r2_mean <-
+    subset(table_to_make_neat,
+         grepl(x=model_parameter,
+               pattern="r2_value_systolic"))$mean_estimate
+systolic_r2_lower <-
+    subset(table_to_make_neat,
+         grepl(x=model_parameter,
+               pattern="r2_value_systolic"))$lower
+systolic_r2_upper <-
+    subset(table_to_make_neat,
+         grepl(x=model_parameter,
+               pattern="r2_value_systolic"))$upper
+diastolic_r2_mean <-
+    subset(table_to_make_neat,
+         grepl(x=model_parameter,
+               pattern="r2_value_diastolic"))$mean_estimate
+diastolic_r2_lower <-
+    subset(table_to_make_neat,
+         grepl(x=model_parameter,
+               pattern="r2_value_diastolic"))$lower
+diastolic_r2_upper <-
+    subset(table_to_make_neat,
+         grepl(x=model_parameter,
+               pattern="r2_value_diastolic"))$upper
+
+
+#we want the model coefficient then (confidence intervals) then the significance , making a table of 4 columns
+#concatenate and restrict the decimal places for systolic
+systolic_coefficients_neat <- 
+  data.frame(
+    Parameter = 
+      systolic_coefficients$model_parameter,
+    Estimate = 
+      formatC(
+        round(
+          systolic_coefficients$mean_estimate ,
+        digits = decimal_places_main) , 
+      format = "f", 
+      digits = decimal_places_main) ,
+    Confidence_Interval = 
+      paste0(
+      formatC(
+        round(
+          systolic_coefficients$lower ,
+          digits = decimal_places_main) ,
+      format = "f", 
+      digits = decimal_places_main) ,
+        " to " ,
+      formatC(
+        round(
+          systolic_coefficients$upper ,
+          digits = decimal_places_main) ,
+      format = "f", 
+      digits = decimal_places_main) 
+    ),
+    Significance = systolic_coefficients$significant
+  )
+
+#remove the preceding systolic_ from each name of the parameter
+systolic_coefficients_neat$Parameter <-
+  gsub(x=systolic_coefficients_neat$Parameter,
+       pattern="systolic_",
+       replacement="")
+
+#create a title row
+title_row_systolic <- as.data.frame(t(c(paste0(
+      "Outcome: Systolic BP (", outcome_type, ")"
+    ),
+    paste0("Number of patients: ",
+    round(number_of_patients, 
+          digits=0)),
+    paste0("Number of visits: ",
+    round(number_of_visits, 
+          digits=0)),
+    rep(NA, ncol(systolic_coefficients_neat) - 3))))
+
+#take the column names from the results frame for the title row
+colnames(title_row_systolic) <- colnames(systolic_coefficients_neat)
+
+#report the random effects and R2 values as a different row
+random_effects_row_systolic <-
+  as.data.frame(t(c(
+    paste0("SD of random slope | random intercept : ",
+    
+      formatC(
+    round(
+      systolic_random_slope,
+      digits=decimal_places_fit_statistics_and_random_effects
+    ) ,
+      format = "f", 
+      digits = decimal_places_fit_statistics_and_random_effects) ,
+    " | " ,
+      formatC(
+    round(
+    systolic_random_intercept,
+      digits=decimal_places_fit_statistics_and_random_effects
+    ),
+      format = "f", 
+      digits = decimal_places_fit_statistics_and_random_effects) 
+    ), 
+    ""#empty cell ready to merge in excel
+    ,
+    paste0("R2 systolic BP (95% CI) : ",
+    
+      formatC(
+    round(
+      systolic_r2_mean,
+      digits=decimal_places_fit_statistics_and_random_effects
+    ) ,
+      format = "f", 
+      digits = decimal_places_fit_statistics_and_random_effects) ,
+      " (",
+      formatC(
+    round(
+      systolic_r2_lower,
+      digits=decimal_places_fit_statistics_and_random_effects
+    ) ,
+      format = "f", 
+      digits = decimal_places_fit_statistics_and_random_effects) ,
+      " to ",
+      formatC(
+    round(
+      systolic_r2_upper,
+      digits=decimal_places_fit_statistics_and_random_effects
+    ) ,
+      format = "f", 
+      digits = decimal_places_fit_statistics_and_random_effects) ,
+      ")"
+      ),
+    
+    rep(NA, ncol(systolic_coefficients_neat) - 3))))
+
+#take the column names from the results frame
+colnames(random_effects_row_systolic) <- colnames(systolic_coefficients_neat)
+
+#then bind them together
+systolic_coefficients_neat_with_title <- 
+  rbind(title_row_systolic, 
+        systolic_coefficients_neat,
+        random_effects_row_systolic)
+
+
+#we want the model coefficient then (confidence intervals) then the significance , making a table of 4 columns
+#concatenate and restrict the decimal places for diastolic
+diastolic_coefficients_neat <- 
+  data.frame(
+    Parameter = 
+      diastolic_coefficients$model_parameter,
+    Estimate = 
+      formatC(
+        round(
+          diastolic_coefficients$mean_estimate ,
+        digits = decimal_places_main) , 
+      format = "f", 
+      digits = decimal_places_main) ,
+    Confidence_Interval = 
+      paste0(
+      formatC(
+        round(
+          diastolic_coefficients$lower ,
+          digits = decimal_places_main) ,
+      format = "f", 
+      digits = decimal_places_main) ,
+        " to " ,
+      formatC(
+        round(
+          diastolic_coefficients$upper ,
+          digits = decimal_places_main) ,
+      format = "f", 
+      digits = decimal_places_main) 
+    ),
+    Significance = diastolic_coefficients$significant
+  )
+
+#remove the preceding diastolic_ from each name of the parameter
+diastolic_coefficients_neat$Parameter <-
+  gsub(x=diastolic_coefficients_neat$Parameter,
+       pattern="diastolic_",
+       replacement="")
+
+#create a title row
+title_row_diastolic <- as.data.frame(t(c(paste0(
+      "Outcome: Diastolic BP (", outcome_type, ")"
+    ), rep(NA, ncol(diastolic_coefficients_neat) - 1))))
+
+#take the column names from the results frame for the title row
+colnames(title_row_diastolic) <- colnames(diastolic_coefficients_neat)
+
+#report the random effects and R2 values as a different row
+random_effects_row_diastolic <-
+  as.data.frame(t(c(
+    
+    paste0("SD of random slope | random intercept : ",
+    
+      formatC(
+    round(
+      diastolic_random_slope,
+      digits=decimal_places_fit_statistics_and_random_effects
+    ) ,
+      format = "f", 
+      digits = decimal_places_fit_statistics_and_random_effects) ,
+    " | " ,
+      formatC(
+    round(
+    diastolic_random_intercept,
+      digits=decimal_places_fit_statistics_and_random_effects
+    ),
+      format = "f", 
+      digits = decimal_places_fit_statistics_and_random_effects) 
+    ), 
+    
+    "",#empty cell ready to merge in excel
+    
+    paste0("R2 diastolic BP (95% CI) : ",
+    
+      formatC(
+    round(
+      diastolic_r2_mean,
+      digits=decimal_places_fit_statistics_and_random_effects
+    ) ,
+      format = "f", 
+      digits = decimal_places_fit_statistics_and_random_effects) ,
+      " (",
+      formatC(
+    round(
+      diastolic_r2_lower,
+      digits=decimal_places_fit_statistics_and_random_effects
+    ) ,
+      format = "f", 
+      digits = decimal_places_fit_statistics_and_random_effects) ,
+      " to ",
+      formatC(
+    round(
+      diastolic_r2_upper,
+      digits=decimal_places_fit_statistics_and_random_effects
+    ) ,
+      format = "f", 
+      digits = decimal_places_fit_statistics_and_random_effects) ,
+      ")"
+      ),
+    
+    rep(NA, ncol(diastolic_coefficients_neat) - 3))))
+
+#take the column names from the results frame
+colnames(random_effects_row_diastolic) <- colnames(diastolic_coefficients_neat)
+
+#then bind them together
+diastolic_coefficients_neat_with_title <- 
+  rbind(title_row_diastolic, 
+        diastolic_coefficients_neat,
+        random_effects_row_diastolic)
+
+
+#put the neat frames together to make one table
+coefficients_neat <-
+  rbind(systolic_coefficients_neat_with_title,
+        diastolic_coefficients_neat_with_title)
+
+#manually change parameters to be nice
+
+#change every NA to an empty string
+coefficients_neat[is.na(coefficients_neat)] <- 
+  ""
+
+#change parameter spellings one by one
+coefficients_neat$Parameter <-
+  ifelse(
+    coefficients_neat$Parameter==
+      "Sex.at.birth...BirthMale",
+    "Sex (Male)",
+    coefficients_neat$Parameter
+  )
+
+coefficients_neat$Parameter <-
+  ifelse(
+    coefficients_neat$Parameter==
+      "Sex.at.birth...BirthNotassigned",
+    "Sex (Not assigned)",
+    coefficients_neat$Parameter
+  )
+
+coefficients_neat$Parameter <-
+  ifelse(
+    coefficients_neat$Parameter==
+      "age_to_use",
+    "Age (years)",
+    coefficients_neat$Parameter
+  )
+
+coefficients_neat$Parameter <-
+  ifelse(
+    coefficients_neat$Parameter==
+      "interpolated_height",
+    "Height (cm)",
+    coefficients_neat$Parameter
+  )
+
+coefficients_neat$Parameter <-
+  ifelse(
+    coefficients_neat$Parameter==
+      "interpolated_weight",
+    "Weight (kg)",
+    coefficients_neat$Parameter
+  )
+
+coefficients_neat$Parameter <-
+  ifelse(
+    coefficients_neat$Parameter==
+      "total_daily_fludro_prior_to_clinic_per_current_bsa",
+    "Daily fludrocortisone per BSA (µg/m2)",
+    coefficients_neat$Parameter
+  )
+
+coefficients_neat$Parameter <-
+  ifelse(
+    coefficients_neat$Parameter==
+      "total_daily_fludro_prior_to_clinic",
+    "Daily fludrocortisone (µ)",
+    coefficients_neat$Parameter
+  )
+
+coefficients_neat$Parameter <-
+  ifelse(
+    coefficients_neat$Parameter==
+      "total_daily_gluco_prior_to_clinic",
+    "Daily hydrocortisone equivalent (mg)",
+    coefficients_neat$Parameter
+  )
+
+coefficients_neat$Parameter <-
+  ifelse(
+    coefficients_neat$Parameter==
+      "total_daily_gluco_prior_to_clinic_per_current_bsa",
+    "Daily hydrocortisone equivalent per BSA (mg/m2)",
+    coefficients_neat$Parameter
+  )
+
+coefficients_neat$Parameter <-
+  ifelse(
+    coefficients_neat$Parameter==
+      "total_daily_salt_prior_to_clinic",
+    "Daily salt (g)",
+    coefficients_neat$Parameter
+  )
+
+coefficients_neat$Parameter <-
+  ifelse(
+    coefficients_neat$Parameter==
+      "total_daily_salt_prior_to_clinic_per_current_bsa",
+    "Daily salt per BSA (g/m2)",
+    coefficients_neat$Parameter
+  )
+
+coefficients_neat$Parameter <-
+  ifelse(
+    coefficients_neat$Parameter==
+      "who_z_bmi_for_age",
+    "BMI SD Score",
+    coefficients_neat$Parameter
+  )
+
+coefficients_neat$Parameter <-
+  ifelse(
+    coefficients_neat$Parameter==
+      "ln_converted_renin_µIU_ml",
+    "ln renin (ln (µIU_ml))",
+    coefficients_neat$Parameter
+  )
+
+coefficients_neat$Parameter <-
+  ifelse(
+    coefficients_neat$Parameter==
+      "ln_converted_17OHP_nmol_l",
+    "ln 17OHP (ln (nmol/l))",
+    coefficients_neat$Parameter
+  )
+
+coefficients_neat$Parameter <-
+  ifelse(
+    coefficients_neat$Parameter==
+      "ln_converted_androstenedione_nmol_l",
+    "ln androstenedione (ln (nmol/ml))",
+    coefficients_neat$Parameter
+  )
+
+
+
+write.csv(coefficients_neat, paste0("neat_coefficient_tables/", model_to_make_neat, ".csv"), row.names=F)
+
+#close the loop that then goes on to the next model
+}
+```
+
+
+```{r, clear variables to prevent unnecessary saves}
+rm(number_of_imputations)
+rm(number_of_bootstraps)
+rm(id_bootstrap_under_twenty)
+rm(id_bootstrap_list_one_to_twenty)
+rm(id_bootstrap_list_under_twenty)
+```
+
+
+```{r, end of file so save all the listed dataframes into the parent directory}
+save_bp_files_function(
+  parent_directory=location_of_data_files,
+  parent_file="file_51")
+Sys.time()
+```

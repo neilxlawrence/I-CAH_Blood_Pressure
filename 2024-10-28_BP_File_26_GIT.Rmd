@@ -1,0 +1,147 @@
+This file fits an LMS weight model to male patients under 20
+
+```{r, load packages}
+rm(list = ls())
+
+#we first establish the location of the working directory where we keep everything, depending on whether it exists (i.e. which computer we are using)
+#check C drive
+if(file.exists("C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure")){
+location_of_main_folder <-
+  "C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure"
+}
+#take the working directory otherwise, which should work every time?
+if(!exists("location_of_main_folder")){
+  location_of_main_folder <- 
+    getwd()
+}
+#paste the name of our functions folder into the path name
+location_of_functions_folder <-
+  paste0(location_of_main_folder, "/bp_functions_folder/")
+
+#load the function that loads all the libraries and sources
+source(paste0(location_of_functions_folder, "load_bp_libraries_and_sources_function.R"))
+
+#paste together the location of the data files - we don't load in the first file, but we need this location for the end
+location_of_data_files <-
+  paste0(location_of_main_folder, "/bp_data_files_to_load/")
+
+#run the function, pointing it towards the functions folder
+load_bp_libraries_and_sources_function(
+  location_of_functions_folder=location_of_functions_folder,
+  location_of_data_files=location_of_data_files
+)
+
+
+load_bp_files_function(previous_file_name = "file_25",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list(
+    "bp_data_under_twenty_male"
+    )
+)
+
+
+```
+
+
+```{r, extract normative weight data from child growth 1990 childsds package}
+normative_weight_data <- 
+  childsds::make_percentile_tab(ref = uk1990.ref, 
+                      item = "weight", 
+                      perc = c(
+                        #2.5,
+                        10,
+                        50,
+                        90#,
+                        #97.5
+                        ), 
+                      stack = TRUE)
+```
+
+
+```{r, you cannot fit LMS with missing data, so remove missing weight}
+bp_data_under_twenty_male_complete_interpolated_weight <-
+  subset(bp_data_under_twenty_male, !is.na(interpolated_weight))[,c(
+    "id_visit_date",
+    "interpolated_weight",
+    "age_to_use"
+  )]
+```
+
+```{r, fit an lms model to male weight and predict lms z scores and overall centiles}
+lms_male_weight_model <- 
+  lms(y=interpolated_weight, 
+      x=age_to_use , 
+      data=bp_data_under_twenty_male_complete_interpolated_weight)
+
+summary(lms_male_weight_model)
+
+coef(lms_male_weight_model)
+
+bp_data_under_twenty_male$lms_z_weight <- 
+  centiles.pred(lms_male_weight_model, 
+                xname="age_to_use",
+                xvalues=bp_data_under_twenty_male$age_to_use ,
+                yval=bp_data_under_twenty_male$interpolated_weight, 
+                type="z-scores" )
+
+male_lms_weight_centiles <- 
+  data.frame(age_to_use= seq(0,20, by=0.1), interpolated_weight= seq(0,200, by=1))
+
+male_lms_weight_centiles <- 
+  centiles.pred(lms_male_weight_model, 
+                xname="age_to_use",
+                xvalues=male_lms_weight_centiles$age_to_use ,
+                yval=male_lms_weight_centiles$interpolated_weight, 
+                type="centiles" )
+```
+
+```{r, plot the centiles in males with weight values on same plot}
+specific_size =2
+specific_alpha=0.5
+male_weight_centile_plot <- 
+  ggplot(
+    data=male_lms_weight_centiles, aes(x=x)) +
+#  geom_line(aes(y=`0.4`))+
+  geom_line(aes(y=`10`), colour="darkblue", size=specific_size, alpha=specific_alpha)+
+  geom_line(aes(y=`25`), colour="black", size=specific_size, alpha=specific_alpha)+
+  geom_line(aes(y=`50`), colour="darkred", size=specific_size, alpha=specific_alpha)+
+  geom_line(aes(y=`75`), colour="black", size=specific_size, alpha=specific_alpha)+ 
+  geom_line(aes(y=`90`), colour="darkblue", size=specific_size, alpha=specific_alpha) +
+#  geom_line(aes(y=`99.6`)) +
+#can hash out these points if you don't want them:  
+  geom_point(data=bp_data_under_twenty_male,
+    aes(x=age_to_use, 
+        y=interpolated_weight), alpha=specific_alpha) + 
+  coord_cartesian(ylim=c(0,120)) +
+  #add in our normative data from WHO 1990 extracted from the childsds package
+  geom_line(data=subset(normative_weight_data, sex=="male"), 
+                aes(x = age, y = value, group = variable),
+            linewidth=1.5,
+            linetype="longdash",
+            colour="black", 
+            alpha=specific_alpha) +
+  themepowerpoint
+
+male_weight_centile_plot
+
+
+
+#save our plot
+dir.create("LMS_plots")
+ggsave(filename=paste0("male_weight_centile_plot.tif"), 
+       path=paste0("LMS_plots"),
+       plot = male_weight_centile_plot, 
+       device="tiff",  
+       width=10, 
+       height=5, 
+       compression = "lzw", 
+       limitsize=F)
+```
+
+
+```{r, end of file so save all the listed dataframes into the parent directory}
+save_bp_files_function(
+  parent_directory=location_of_data_files,
+  parent_file="file_26")
+Sys.time()
+```

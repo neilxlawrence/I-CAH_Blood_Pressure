@@ -1,0 +1,256 @@
+Overall descriptions of variables going into joint modelling
+
+```{r, load packages}
+rm(list = ls())
+
+#we first establish the location of the working directory where we keep everything, depending on whether it exists (i.e. which computer we are using)
+#check C drive
+if(file.exists("C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure")){
+location_of_main_folder <-
+  "C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure"
+}
+#take the working directory otherwise, which should work every time?
+if(!exists("location_of_main_folder")){
+  location_of_main_folder <- 
+    getwd()
+}
+#paste the name of our functions folder into the path name
+location_of_functions_folder <-
+  paste0(location_of_main_folder, "/bp_functions_folder/")
+
+#load the function that loads all the libraries and sources
+source(paste0(location_of_functions_folder, "load_bp_libraries_and_sources_function.R"))
+
+#paste together the location of the data files - we don't load in the first file, but we need this location for the end
+location_of_data_files <-
+  paste0(location_of_main_folder, "/bp_data_files_to_load/")
+
+#run the function, pointing it towards the functions folder
+load_bp_libraries_and_sources_function(
+  location_of_functions_folder=location_of_functions_folder,
+  location_of_data_files=location_of_data_files
+)
+
+load_bp_files_function(previous_file_name = "file_21",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list(
+    #we take the number of imputations that we defined when running JOMO:
+                                   "number_of_imputations"))
+
+
+load_bp_files_function(previous_file_name = "file_38",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list(
+    "bp_data_under_twenty"
+    )
+)
+
+descr(bp_data_under_twenty$who_z_weight_for_age)
+bp_data_over_ten <-
+  subset(bp_data_under_twenty, age_to_use>10)
+descr(bp_data_over_ten$who_z_weight_for_age)
+```
+
+```{r, ribbon plot of BP SDS}
+#we want to plot both the full data under twenty, and the data where we have 
+
+name_of_data_frame_to_plot <-
+  "bp_data_under_twenty"
+  
+data_frame <- 
+  as.data.frame(get(name_of_data_frame_to_plot))  
+
+#put this in a loop later
+imputation_number <- 0
+data_frame <- 
+  subset(data_frame, age_to_use >1)
+
+x_variable <- 
+  "age_to_use"
+y_variable_high <- 
+  paste0("systolic_imp_z_score_", imputation_number)
+y_variable_low <-
+  paste0("diastolic_imp_z_score_", imputation_number)
+
+ribbon_bp_plot <- 
+  ggplot(data_frame, 
+         aes_string(
+           x=x_variable, 
+           y=y_variable_high)) +
+  geom_hline(
+    yintercept=0,
+    linewidth=3,
+    linetype="solid",
+    alpha=0.5
+  ) +
+  geom_hline(
+    yintercept=c(-1.645,1.645),
+    linewidth=2,
+    linetype="dashed",
+    alpha=0.5
+  ) +
+  geom_point(
+    aes_string(
+      x=x_variable, 
+      y=y_variable_low,
+      colour="Sex.at.birth...Birth"),
+    shape="triangle down open",
+    size=0.6,
+    alpha=0.2) +
+  geom_point(
+    aes_string(
+      x=x_variable, 
+      y=y_variable_high,
+      colour="Sex.at.birth...Birth"),
+    shape="triangle open",
+    size=0.6,
+    alpha=0.2) +
+  geom_ribbon(
+    data=subset(data_frame, Sex.at.birth...Birth=="Male"),
+    aes_string(
+    ymin = y_variable_low,
+    ymax = y_variable_high,
+    group="id"
+  ),
+    fill="blue",
+  alpha=0.05) +
+  geom_ribbon(data=subset(data_frame, Sex.at.birth...Birth=="Female"),
+    aes_string(
+    ymin = y_variable_low,
+    ymax = y_variable_high,
+    group="id"
+  ),
+    fill="red",
+  alpha = 0.05) + 
+  scale_colour_manual(
+    values=c(
+      "Male"="blue",
+      "Female"="red",
+      "Not assigned"="green")) + 
+  labs(
+    x="Age at visit (years)",
+    y="Blood Pressure SDS"
+  ) +
+  scale_x_continuous(
+    limits=c(1,18),
+    breaks=c(2, 4, 6, 8, 10, 12, 14, 16, 18)
+  ) +
+  scale_y_continuous(
+    limits=c(-3.5,7),
+    breaks=c(-3,-2,-1,0,1,2,3,4,5,6,7)
+  ) +
+  coord_cartesian(
+    ylim=c(-3.1,7)
+  ) +
+  themepowerpointtitle
+
+
+ribbon_bp_plot
+
+dir.create("SDS_plots")
+ggsave(file=paste0("./SDS_plots/BP_SDS_plot", 
+                   ".tif"),
+       plot=ribbon_bp_plot, 
+       device="tiff", 
+       width=10, 
+       height=5 , 
+       compression = "lzw")
+```
+
+```{r, line plot of BMI SDS}
+#we want to plot both the full data under twenty, and the data where we have 
+
+name_of_data_frame_to_plot <-
+  "bp_data_under_twenty"
+  
+data_frame <- 
+  as.data.frame(get(name_of_data_frame_to_plot))  
+
+data_frame <- 
+  subset(data_frame, age_to_use >1)
+
+x_variable <- 
+  "age_to_use"
+y_variable <- 
+  "who_z_bmi_for_age"
+
+bmi_sds_plot <- 
+  ggplot(data_frame, 
+         aes_string(
+           x=x_variable, 
+           y=y_variable)) +
+  geom_hline(
+    yintercept=0,
+    linewidth=3,
+    linetype="solid",
+    alpha=0.5
+  ) +
+  geom_hline(
+    yintercept=c(-1.645,1.645),
+    linewidth=2,
+    linetype="dashed",
+    alpha=0.5
+  ) +
+  geom_point(
+    aes_string(
+      x=x_variable, 
+      y=y_variable,
+      colour="Sex.at.birth...Birth"),
+    shape="circle open",
+    size=0.6,
+    alpha=0.2) +
+  geom_line(
+    aes_string(
+    ymin = y_variable_low,
+    ymax = y_variable_high,
+    group="id",
+    colour="Sex.at.birth...Birth"
+  ),
+  linewidth=1.2,
+  alpha=0.1) +
+  scale_colour_manual(
+    values=c(
+      "Male"="blue",
+      "Female"="red",
+      "Not assigned"="green")) + 
+  labs(
+    x="Age at visit (years)",
+    y="Body Mass Index SDS"
+  ) +
+  scale_x_continuous(
+    limits=c(1,18),
+    breaks=c(2, 4, 6, 8, 10, 12, 14, 16, 18)
+  ) +
+  scale_y_continuous(
+    limits=c(-3.5,7),
+    breaks=c(-3,-2,-1,0,1,2,3,4,5,6,7)
+  ) +
+  coord_cartesian(
+    ylim=c(-3.1,7)
+  ) +
+  themepowerpointtitle
+
+
+bmi_sds_plot
+
+dir.create("SDS_plots")
+ggsave(file=paste0("./SDS_plots/BMI_SDS_plot", 
+                   ".tif"),
+       plot=bmi_sds_plot, 
+       device="tiff", 
+       width=10, 
+       height=5 , 
+       compression = "lzw")
+```
+
+```{r, clear variables to prevent unnecessary saves}
+rm(number_of_imputations)
+rm(bp_data_under_twenty)
+```
+
+```{r, end of file so save all the listed dataframes into the parent directory}
+save_bp_files_function(
+  parent_directory=location_of_data_files,
+  parent_file="file_52")
+Sys.time()
+```

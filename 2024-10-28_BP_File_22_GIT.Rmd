@@ -1,0 +1,516 @@
+Load packages and reread files using the prebuilt load files function
+
+```{r, load packages}
+rm(list = ls())
+
+#we first establish the location of the working directory where we keep everything, depending on whether it exists (i.e. which computer we are using)
+#check C drive
+if(file.exists("C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure")){
+location_of_main_folder <-
+  "C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure"
+}
+#take the working directory otherwise, which should work every time?
+if(!exists("location_of_main_folder")){
+  location_of_main_folder <- 
+    getwd()
+}
+#paste the name of our functions folder into the path name
+location_of_functions_folder <-
+  paste0(location_of_main_folder, "/bp_functions_folder/")
+
+#load the function that loads all the libraries and sources
+source(paste0(location_of_functions_folder, "load_bp_libraries_and_sources_function.R"))
+
+#paste together the location of the data files - we don't load in the first file, but we need this location for the end
+location_of_data_files <-
+  paste0(location_of_main_folder, "/bp_data_files_to_load/")
+
+#run the function, pointing it towards the functions folder
+load_bp_libraries_and_sources_function(
+  location_of_functions_folder=location_of_functions_folder,
+  location_of_data_files=location_of_data_files
+)
+
+load_bp_files_function(previous_file_name = "file_21",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list("bp_data",
+                                   #we take the number of imputations that we defined when running JOMO:
+                                   "number_of_imputations"))
+
+descr(bp_data$converted_17OHP_nmol_l_imputation_0)
+```
+
+
+
+
+https://www.peteredewitt.com/pedbp/
+
+```{r, notes on how to use pedbp}
+#install.packages("pedbp")
+library(pedbp)
+
+bp_cdf(age = 96, 
+       male = 1, 
+       sbp = 103, 
+       dbp = 55)
+
+flynn_chart_male <- 
+  pedbp::bp_chart("sbp", male = 1, source = "flynn2017") + ylim(50,160) + xlim(0,240)
+flynn_chart_male
+flynn_chart_male_data <- flynn_chart_male$data
+bp_chart("sbp", male = 1, source = "nhlbi") + ylim(50,160) + xlim(0,240)
+bp_chart("sbp", male = 1, source = "gemelli1990") + ylim(50,160) + xlim(0,240)
+
+x <- p_bp(q_sbp = 100, q_dbp = 60, age = 8, male = 0) 
+x 
+str(x)
+
+p_bp(q_sbp = 95, # this is the entered systolic blood pressure
+     q_dbp = 50, # this is the entered diastolic blood pressure
+     male = 0, #0 here means female
+     age = 28, #this is age IN MONTHS
+     height = 92) # this is height in cm
+
+p_bp(q_sbp = 95, q_dbp = 50, male = 0, age = 28, height = 92, source = "martin2022")  # Default
+p_bp(q_sbp = 95, q_dbp = 50, male = 0, age = 28, height = 92, source = "gemelli1990")
+p_bp(q_sbp = 95, q_dbp = 50, male = 0, age = 28, height = 92, source = "lo2013")
+p_bp(q_sbp = 95, q_dbp = 50, male = 0, age = 28, height = 92, source = "nhlbi")
+p_bp(q_sbp = 95, q_dbp = 50, male = 0, age = 28, height = 92, source = "flynn2017")
+
+vignette("bp-distributions", package = "pedbp")
+
+bp_data$sex_1_for_M_0_for_F <-
+  ifelse(bp_data$sex_1_for_M_2_for_F==2,
+         0,
+         bp_data$sex_1_for_M_2_for_F)
+
+  
+bp_results <-
+  p_bp(q_sbp = bp_data$Systolic..mmHg....CAH.Longitudinal.Data, 
+       q_dbp = bp_data$Diastolic..mmHg....CAH.Longitudinal.Data, 
+#       source = "gemelli1990", 
+       male = 1, #doesn't work with bp_data$sex_1_for_M_0_for_F
+       age = bp_data$age_to_use * 12, #age in months 
+       height = bp_data$interpolated_height)
+descr(bp_results$sbp_p)
+descr(bp_results$dbp_p)
+```
+
+**************************
+loop around each imputation to find blood pressure percentiles
+**************************
+
+I've redone this chunk to specify the normative centile reference data we are using, because we don't want to use the predefined hierarchy they have used within the package itself as it is so 'jagged' and stepped it doesn't make sense
+
+```{r, calculate blood pressure percentiles for gemelli}
+#it's unlikely or stupid if we impute these a different number of times, but I've written the code separately for the sake of it, we therefore need to take the smallest number of imputations to allow a loop to work for both systolic and diastolic together
+number_of_imputations_for_systolic <-
+#  max(bp_data$systolic_number_of_imputations, na.rm=T)
+  number_of_imputations #I've rewritten this now just to take the predefined number of imputations
+
+number_of_imputations_for_diastolic <-
+#  max(bp_data$diastolic_number_of_imputations, na.rm=T)
+  number_of_imputations #I've rewritten this now just to take the predefined number of imputations
+
+#take the smallest number of imputations to facilitate the loop
+number_of_imputations_for_bp <-
+  ifelse(number_of_imputations_for_systolic < 
+           number_of_imputations_for_diastolic,
+         number_of_imputations_for_diastolic,
+         number_of_imputations_for_systolic)
+
+for (i in (0:number_of_imputations_for_bp)){
+  #take out males and females as we have to run them through the app separately
+  bp_data_male <- 
+    subset(bp_data, Sex.at.birth...Birth=="Male")
+  
+  bp_data_fema <- 
+    subset(bp_data, Sex.at.birth...Birth=="Female")
+  
+  bp_data_neither <- 
+    subset(bp_data, Sex.at.birth...Birth!="Female" & Sex.at.birth...Birth!="Male")
+  
+  print(i)
+
+  #take out the systolic and diastolic for each imputation
+  systolic_column_frame_male <- 
+    bp_data_male[,paste0("systolic_imputation_", i)]
+  
+  diastolic_column_frame_male <- 
+    bp_data_male[,paste0("diastolic_imputation_", i)]
+
+  systolic_column_frame_fema <- 
+    bp_data_fema[,paste0("systolic_imputation_", i)]
+  
+  diastolic_column_frame_fema <- 
+    bp_data_fema[,paste0("diastolic_imputation_", i)]
+
+#run our app to find bp percentiles in males  
+bp_percentile_frame_male_gemelli <-
+  p_bp(q_sbp = systolic_column_frame_male[[1]], 
+       q_dbp = diastolic_column_frame_male[[1]], 
+       source = "gemelli1990", #if you don't specify source, it will use the appropriate hierarchy detailed on 
+       male = 1, #doesn't work with bp_data$sex_1_for_M_0_for_F. male is 1, female is 0
+       age = bp_data_male$age_to_use * 12, #age in months 
+       height = bp_data_male$interpolated_height)
+
+bp_percentile_frame_male_nhlbi <-
+  p_bp(q_sbp = systolic_column_frame_male[[1]], 
+       q_dbp = diastolic_column_frame_male[[1]], 
+       source = "nhlbi", #if you don't specify source, it will use the appropriate hierarchy detailed on 
+       male = 1, #doesn't work with bp_data$sex_1_for_M_0_for_F. male is 1, female is 0
+       age = bp_data_male$age_to_use * 12, #age in months 
+       height = bp_data_male$interpolated_height)
+
+#run our app to find bp percentiles in femas  
+bp_percentile_frame_fema_gemelli <-
+  p_bp(q_sbp = systolic_column_frame_fema[[1]], 
+       q_dbp = diastolic_column_frame_fema[[1]], 
+       source = "gemelli1990", 
+       male = 0, #doesn't work with bp_data$sex_1_for_M_0_for_F. male is 1, female is 0
+       age = bp_data_fema$age_to_use * 12, #age in months
+       height = bp_data_fema$interpolated_height)
+
+bp_percentile_frame_fema_nhlbi <-
+  p_bp(q_sbp = systolic_column_frame_fema[[1]], 
+       q_dbp = diastolic_column_frame_fema[[1]], 
+       source = "nhlbi", 
+       male = 0, #doesn't work with bp_data$sex_1_for_M_0_for_F. male is 1, female is 0
+       age = bp_data_fema$age_to_use * 12, #age in months
+       height = bp_data_fema$interpolated_height)
+
+#then we put the appropriate columns back into the frames
+
+#put the male systolic in for gemelli
+bp_data_male$new_column_percentile_gemelli <-
+  bp_percentile_frame_male_gemelli$sbp_p
+#correct any percentile that is exactly 1.000000 or 0.0000000 to prevent z scores that go to infinity
+bp_data_male$new_column_percentile_gemelli <-
+  ifelse(bp_data_male$new_column_percentile_gemelli == 1, 
+         0.9999999,
+         bp_data_male$new_column_percentile_gemelli)
+bp_data_male$new_column_percentile_gemelli <-
+  ifelse(bp_data_male$new_column_percentile_gemelli == 0, 
+         0.0000001,
+         bp_data_male$new_column_percentile_gemelli)
+#create z scores from percentiles using the r function qnorm for male systolic
+bp_data_male$new_column_z_score_gemelli <- 
+  qnorm(bp_data_male$new_column_percentile_gemelli)
+descr(bp_data_male$new_column_z_score_gemelli)
+
+#put the male systolic in for nhlbi
+bp_data_male$new_column_percentile_nhlbi <-
+  bp_percentile_frame_male_nhlbi$sbp_p
+#correct any percentile that is exactly 1.000000 or 0.0000000 to prevent z scores that go to infinity
+bp_data_male$new_column_percentile_nhlbi <-
+  ifelse(bp_data_male$new_column_percentile_nhlbi == 1, 
+         0.9999999,
+         bp_data_male$new_column_percentile_nhlbi)
+bp_data_male$new_column_percentile_nhlbi <-
+  ifelse(bp_data_male$new_column_percentile_nhlbi == 0, 
+         0.0000001,
+         bp_data_male$new_column_percentile_nhlbi)
+#create z scores from percentiles using the r function qnorm for male systolic
+bp_data_male$new_column_z_score_nhlbi <- 
+  qnorm(bp_data_male$new_column_percentile_nhlbi)
+descr(bp_data_male$new_column_z_score_nhlbi)
+
+#use the percentile column from gemelli if we are under 1, from nhlbi if we are 1 or over
+bp_data_male$new_column_percentile <-
+  ifelse(bp_data_male$age_to_use < 1, 
+         bp_data_male$new_column_percentile_gemelli,
+         bp_data_male$new_column_percentile_nhlbi)
+
+#use the z-score column from gemelli if we are under 1, from nhlbi if we are 1 or over
+bp_data_male$new_column_z_score <-
+  ifelse(bp_data_male$age_to_use < 1, 
+         bp_data_male$new_column_z_score_gemelli,
+         bp_data_male$new_column_z_score_nhlbi)
+
+#rename our new column percentiles to contain the imputation number
+names(bp_data_male)[names(bp_data_male)=="new_column_percentile"] <- 
+  paste0("systolic_imp_centile_", i)
+#rename our new column percentiles to contain the imputation number
+names(bp_data_male)[names(bp_data_male)=="new_column_z_score"] <- 
+  paste0("systolic_imp_z_score_", i)
+
+#put the male diastolic in for gemelli
+bp_data_male$new_column_percentile_gemelli <-
+  bp_percentile_frame_male_gemelli$dbp_p
+#correct any percentile that is exactly 1.000000 or 0.0000000 to prevent z scores that go to infinity
+bp_data_male$new_column_percentile_gemelli <-
+  ifelse(bp_data_male$new_column_percentile_gemelli == 1, 
+         0.9999999,
+         bp_data_male$new_column_percentile_gemelli)
+bp_data_male$new_column_percentile_gemelli <-
+  ifelse(bp_data_male$new_column_percentile_gemelli == 0, 
+         0.0000001,
+         bp_data_male$new_column_percentile_gemelli)
+#create z scores from percentiles using the r function qnorm for male diastolic
+bp_data_male$new_column_z_score_gemelli <- 
+  qnorm(bp_data_male$new_column_percentile_gemelli)
+descr(bp_data_male$new_column_z_score_gemelli)
+
+#put the male diastolic in for nhlbi
+bp_data_male$new_column_percentile_nhlbi <-
+  bp_percentile_frame_male_nhlbi$dbp_p
+#correct any percentile that is exactly 1.000000 or 0.0000000 to prevent z scores that go to infinity
+bp_data_male$new_column_percentile_nhlbi <-
+  ifelse(bp_data_male$new_column_percentile_nhlbi == 1, 
+         0.9999999,
+         bp_data_male$new_column_percentile_nhlbi)
+bp_data_male$new_column_percentile_nhlbi <-
+  ifelse(bp_data_male$new_column_percentile_nhlbi == 0, 
+         0.0000001,
+         bp_data_male$new_column_percentile_nhlbi)
+#create z scores from percentiles using the r function qnorm for male diastolic
+bp_data_male$new_column_z_score_nhlbi <- 
+  qnorm(bp_data_male$new_column_percentile_nhlbi)
+descr(bp_data_male$new_column_z_score_nhlbi)
+
+#use the percentile column from gemelli if we are under 1, from nhlbi if we are 1 or over
+bp_data_male$new_column_percentile <-
+  ifelse(bp_data_male$age_to_use < 1, 
+         bp_data_male$new_column_percentile_gemelli,
+         bp_data_male$new_column_percentile_nhlbi)
+
+#use the z-score column from gemelli if we are under 1, from nhlbi if we are 1 or over
+bp_data_male$new_column_z_score <-
+  ifelse(bp_data_male$age_to_use < 1, 
+         bp_data_male$new_column_z_score_gemelli,
+         bp_data_male$new_column_z_score_nhlbi)
+
+#rename our new column percentiles to contain the imputation number
+names(bp_data_male)[names(bp_data_male)=="new_column_percentile"] <- 
+  paste0("diastolic_imp_centile_", i)
+#rename our new column percentiles to contain the imputation number
+names(bp_data_male)[names(bp_data_male)=="new_column_z_score"] <- 
+  paste0("diastolic_imp_z_score_", i)
+
+
+#put the fema systolic in for gemelli
+bp_data_fema$new_column_percentile_gemelli <-
+  bp_percentile_frame_fema_gemelli$sbp_p
+#correct any percentile that is exactly 1.000000 or 0.0000000 to prevent z scores that go to infinity
+bp_data_fema$new_column_percentile_gemelli <-
+  ifelse(bp_data_fema$new_column_percentile_gemelli == 1, 
+         0.9999999,
+         bp_data_fema$new_column_percentile_gemelli)
+bp_data_fema$new_column_percentile_gemelli <-
+  ifelse(bp_data_fema$new_column_percentile_gemelli == 0, 
+         0.0000001,
+         bp_data_fema$new_column_percentile_gemelli)
+#create z scores from percentiles using the r function qnorm for fema systolic
+bp_data_fema$new_column_z_score_gemelli <- 
+  qnorm(bp_data_fema$new_column_percentile_gemelli)
+descr(bp_data_fema$new_column_z_score_gemelli)
+
+#put the fema systolic in for nhlbi
+bp_data_fema$new_column_percentile_nhlbi <-
+  bp_percentile_frame_fema_nhlbi$sbp_p
+#correct any percentile that is exactly 1.000000 or 0.0000000 to prevent z scores that go to infinity
+bp_data_fema$new_column_percentile_nhlbi <-
+  ifelse(bp_data_fema$new_column_percentile_nhlbi == 1, 
+         0.9999999,
+         bp_data_fema$new_column_percentile_nhlbi)
+bp_data_fema$new_column_percentile_nhlbi <-
+  ifelse(bp_data_fema$new_column_percentile_nhlbi == 0, 
+         0.0000001,
+         bp_data_fema$new_column_percentile_nhlbi)
+#create z scores from percentiles using the r function qnorm for fema systolic
+bp_data_fema$new_column_z_score_nhlbi <- 
+  qnorm(bp_data_fema$new_column_percentile_nhlbi)
+descr(bp_data_fema$new_column_z_score_nhlbi)
+
+#use the percentile column from gemelli if we are under 1, from nhlbi if we are 1 or over
+bp_data_fema$new_column_percentile <-
+  ifelse(bp_data_fema$age_to_use < 1, 
+         bp_data_fema$new_column_percentile_gemelli,
+         bp_data_fema$new_column_percentile_nhlbi)
+
+#use the z-score column from gemelli if we are under 1, from nhlbi if we are 1 or over
+bp_data_fema$new_column_z_score <-
+  ifelse(bp_data_fema$age_to_use < 1, 
+         bp_data_fema$new_column_z_score_gemelli,
+         bp_data_fema$new_column_z_score_nhlbi)
+
+#rename our new column percentiles to contain the imputation number
+names(bp_data_fema)[names(bp_data_fema)=="new_column_percentile"] <- 
+  paste0("systolic_imp_centile_", i)
+#rename our new column percentiles to contain the imputation number
+names(bp_data_fema)[names(bp_data_fema)=="new_column_z_score"] <- 
+  paste0("systolic_imp_z_score_", i)
+
+#put the fema diastolic in for gemelli
+bp_data_fema$new_column_percentile_gemelli <-
+  bp_percentile_frame_fema_gemelli$dbp_p
+#correct any percentile that is exactly 1.000000 or 0.0000000 to prevent z scores that go to infinity
+bp_data_fema$new_column_percentile_gemelli <-
+  ifelse(bp_data_fema$new_column_percentile_gemelli == 1, 
+         0.9999999,
+         bp_data_fema$new_column_percentile_gemelli)
+bp_data_fema$new_column_percentile_gemelli <-
+  ifelse(bp_data_fema$new_column_percentile_gemelli == 0, 
+         0.0000001,
+         bp_data_fema$new_column_percentile_gemelli)
+#create z scores from percentiles using the r function qnorm for fema diastolic
+bp_data_fema$new_column_z_score_gemelli <- 
+  qnorm(bp_data_fema$new_column_percentile_gemelli)
+descr(bp_data_fema$new_column_z_score_gemelli)
+
+#put the fema diastolic in for nhlbi
+bp_data_fema$new_column_percentile_nhlbi <-
+  bp_percentile_frame_fema_nhlbi$dbp_p
+#correct any percentile that is exactly 1.000000 or 0.0000000 to prevent z scores that go to infinity
+bp_data_fema$new_column_percentile_nhlbi <-
+  ifelse(bp_data_fema$new_column_percentile_nhlbi == 1, 
+         0.9999999,
+         bp_data_fema$new_column_percentile_nhlbi)
+bp_data_fema$new_column_percentile_nhlbi <-
+  ifelse(bp_data_fema$new_column_percentile_nhlbi == 0, 
+         0.0000001,
+         bp_data_fema$new_column_percentile_nhlbi)
+#create z scores from percentiles using the r function qnorm for fema diastolic
+bp_data_fema$new_column_z_score_nhlbi <- 
+  qnorm(bp_data_fema$new_column_percentile_nhlbi)
+descr(bp_data_fema$new_column_z_score_nhlbi)
+
+#use the percentile column from gemelli if we are under 1, from nhlbi if we are 1 or over
+bp_data_fema$new_column_percentile <-
+  ifelse(bp_data_fema$age_to_use < 1, 
+         bp_data_fema$new_column_percentile_gemelli,
+         bp_data_fema$new_column_percentile_nhlbi)
+
+#use the z-score column from gemelli if we are under 1, from nhlbi if we are 1 or over
+bp_data_fema$new_column_z_score <-
+  ifelse(bp_data_fema$age_to_use < 1, 
+         bp_data_fema$new_column_z_score_gemelli,
+         bp_data_fema$new_column_z_score_nhlbi)
+
+#rename our new column percentiles to contain the imputation number
+names(bp_data_fema)[names(bp_data_fema)=="new_column_percentile"] <- 
+  paste0("diastolic_imp_centile_", i)
+#rename our new column percentiles to contain the imputation number
+names(bp_data_fema)[names(bp_data_fema)=="new_column_z_score"] <- 
+  paste0("diastolic_imp_z_score_", i)
+
+#create dummy columns for those not male or female, just so we can bind appropriately
+
+#put the neither systolic dummy columns in
+bp_data_neither$new_column_percentile <-
+  NA
+bp_data_neither$new_column_z_score <-
+  NA
+#rename our new column percentiles to contain the imputation number
+names(bp_data_neither)[names(bp_data_neither)=="new_column_percentile"] <- 
+  paste0("systolic_imp_centile_", i)
+#rename our new column z scores to contain the imputation number
+names(bp_data_neither)[names(bp_data_neither)=="new_column_z_score"] <- 
+  paste0("systolic_imp_z_score_", i)
+
+#put the neither diastolic dummy columns in
+bp_data_neither$new_column_percentile <-
+  NA
+bp_data_neither$new_column_z_score <-
+  NA
+#rename our new column
+names(bp_data_neither)[names(bp_data_neither)=="new_column_percentile"] <- 
+  paste0("diastolic_imp_centile_", i)
+#rename our new column z scores to contain the imputation number
+names(bp_data_neither)[names(bp_data_neither)=="new_column_z_score"] <- 
+  paste0("diastolic_imp_z_score_", i)
+
+#now bind our columns back
+bp_data_both_male_and_female <-
+  rbind(bp_data_male,
+        bp_data_fema)
+
+#recreate bp_data by binding those without sex also, which means we will now have the bp_data with the appropriate centiles
+bp_data <-
+  rbind(bp_data_both_male_and_female,
+        bp_data_neither)
+
+}
+
+visual_check <-
+  bp_data[,c(
+    "age_to_use",
+    "systolic_imputation_5",
+    "systolic_imp_centile_5",
+    "systolic_imp_z_score_5",
+    "diastolic_imputation_5",
+    "diastolic_imp_centile_5",
+    "diastolic_imp_z_score_5"
+  )]
+
+
+```
+
+
+```{r, this leaves us with the question}
+print("How do we best calculate z scores or centiles of blood pressure for adults? NAHNES data?")
+```
+
+```{r, plotting dose of glucorticoids against age to help identify other preparations}
+#for each centre we want a plot of absolute GC dose on age coloured by the GC type
+descr(bp_data$absolute_daily_GC_dose_sum)
+descr(bp_data$absolute_daily_GC_dose_sum_original)
+dir.create("separate_centre_data")
+for (each_centre in (unique(bp_data$Centre.Name...Centre))){
+print(each_centre)
+data_to_plot <-
+  subset(bp_data, Centre.Name...Centre==each_centre)
+
+#put a little clause in to render in black if there are no known daily preparations:
+if(sum(is.na(data_to_plot$daily_preparation_of_GC_to_use_carried_to_use)) - length(data_to_plot$daily_preparation_of_GC_to_use_carried_to_use)<=0){
+
+  centre_plot <- ggplot(data=data_to_plot, 
+       aes(x=age_to_use,
+           y=absolute_daily_GC_dose_sum)) +
+  geom_point(colour="black") +
+  themepowerpointlegend
+  
+}
+
+#then render in colour if we have the preparations to use
+if(sum(is.na(data_to_plot$daily_preparation_of_GC_to_use_carried_to_use)) - length(data_to_plot$daily_preparation_of_GC_to_use_carried_to_use)>0){
+
+centre_plot <- ggplot(data=data_to_plot, 
+       aes(x=age_to_use,
+           y=absolute_daily_GC_dose_sum)) +
+  geom_point(aes(colour=daily_preparation_of_GC_to_use_carried_to_use)) +
+  themepowerpointlegend
+
+}
+
+ggsave(filename=paste0("centre_", each_centre, ".tif"), 
+       path=paste0("separate_centre_data"),
+       plot = centre_plot, 
+       device="tiff",  
+       width=10, 
+       height=5, 
+       compression = "lzw", 
+       limitsize=F)
+
+write.csv(x=data_to_plot, 
+          file=paste0("separate_centre_data/data_for_centre_", each_centre, ".csv"),
+          row.names=F)
+}
+
+print("Review the folder 'separate_centre_data' if you have any centres that have dosing as 'other' - this will give you a clue what they are in the plots, and allow you to look individually at the centre data to diagnose.")
+
+```
+
+
+
+
+```{r, end of file so save all the listed dataframes into the parent directory}
+rm(number_of_imputations) #we only want to save this once and load it once
+
+save_bp_files_function(
+  parent_directory=location_of_data_files,
+  parent_file="file_22")
+
+Sys.time()
+```
+

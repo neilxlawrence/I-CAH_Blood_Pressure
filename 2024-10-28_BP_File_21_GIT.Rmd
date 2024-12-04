@@ -1,0 +1,620 @@
+Load packages and reread files using the prebuilt load files function
+
+```{r, load packages}
+rm(list = ls())
+
+#we first establish the location of the working directory where we keep everything, depending on whether it exists (i.e. which computer we are using)
+#check C drive
+if(file.exists("C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure")){
+location_of_main_folder <-
+  "C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure"
+}
+#take the working directory otherwise, which should work every time?
+if(!exists("location_of_main_folder")){
+  location_of_main_folder <- 
+    getwd()
+}
+#paste the name of our functions folder into the path name
+location_of_functions_folder <-
+  paste0(location_of_main_folder, "/bp_functions_folder/")
+
+#load the function that loads all the libraries and sources
+source(paste0(location_of_functions_folder, "load_bp_libraries_and_sources_function.R"))
+
+#paste together the location of the data files - we don't load in the first file, but we need this location for the end
+location_of_data_files <-
+  paste0(location_of_main_folder, "/bp_data_files_to_load/")
+
+#run the function, pointing it towards the functions folder
+load_bp_libraries_and_sources_function(
+  location_of_functions_folder=location_of_functions_folder,
+  location_of_data_files=location_of_data_files
+)
+#we load the previous lower limits of detection used in file 6 that we apply again after imputation
+load_bp_files_function(previous_file_name = "file_6",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list("lower_level_of_detection_17ohp_nmol_l",
+                                   "lower_level_of_detection_androstenedione_nmol_l",
+                                   "lower_level_of_detection_renin_µIU_ml",
+                                   "upper_level_of_detection_17ohp_nmol_l",
+                                   "upper_level_of_detection_androstenedione_nmol_l",
+                                   "upper_level_of_detection_renin_µIU_ml"))
+
+load_bp_files_function(previous_file_name = "file_20",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list("bp_data"))
+```
+return to file 2024-04-10 to understand the different imputation techniques that were employed and failed
+
+```{r, define and save number of imputations for future use}
+#define number of imputations so we can add it to the main frame as well
+number_of_imputations <- 10
+```
+
+```{r, log transform lower limits of detection used in previous file}
+ln_lower_level_of_detection_17ohp_nmol_l <-
+  log(lower_level_of_detection_17ohp_nmol_l)
+ln_lower_level_of_detection_androstenedione_nmol_l <-
+  log(lower_level_of_detection_androstenedione_nmol_l)
+ln_lower_level_of_detection_renin_µIU_ml <-
+  log(lower_level_of_detection_17ohp_nmol_l)
+
+ln_upper_level_of_detection_17ohp_nmol_l <-
+  log(upper_level_of_detection_17ohp_nmol_l)
+ln_upper_level_of_detection_androstenedione_nmol_l <-
+  log(upper_level_of_detection_androstenedione_nmol_l)
+ln_upper_level_of_detection_renin_µIU_ml <-
+  log(upper_level_of_detection_17ohp_nmol_l)
+```
+
+```{r, imputing blood pressure and biomarkers using height weight and age in jomo}
+#take out the columns that will be used in the imputation model
+data_to_impute <-  
+  as.data.frame(bp_data[,c(
+    "interpolated_height",
+    "interpolated_weight",
+    "age_to_use",
+    "Sex.at.birth...Birth",
+    
+    #here we now add our markers as well
+    "ln_converted_renin_µIU_ml_imputed_units_0",
+    "ln_converted_17OHP_nmol_l_imputed_units_0",
+    "ln_converted_androstenedione_nmol_l_imputed_units_0",
+
+    "Systolic..mmHg....CAH.Longitudinal.Data",
+    "Diastolic..mmHg....CAH.Longitudinal.Data"
+)])
+
+#make sex a factor to ensure it is considered correctly as a categorical variable
+data_to_impute$Sex.at.birth...Birth <-
+  as.factor(data_to_impute$Sex.at.birth...Birth)
+
+
+#define the clusters, in this case patients
+cluster_frame <-  
+  bp_data[,c(
+      "id")]
+
+#create an id_visit_date_frame to join back in
+id_visit_date_frame <-
+  bp_data[,c(
+    "id",
+    "id_visit_date",
+    "age_to_use"
+  )]
+
+#add the number of imputations to the main frame
+bp_data$systolic_number_of_imputations <-
+  number_of_imputations
+
+bp_data$diastolic_number_of_imputations <-
+  number_of_imputations
+
+#impute using JOMO
+imputation_by_jomo <- 
+  jomo::jomo(
+    data_to_impute,
+    clus = cluster_frame,
+    nburn = 200,
+    nbetween = 200,
+    nimp = number_of_imputations) #number of imputations
+
+#sort out the id column by removing the dodgy jomo id
+imputation_by_jomo$id <- NULL
+#then inserting our cluster id
+imputation_by_jomo$id <- 
+  as.integer(as.character(imputation_by_jomo$clus))
+#remove the superfluous columns:
+imputation_by_jomo$clus <- NULL
+imputation_by_jomo$X1 <- NULL
+imputation_by_jomo$Z1 <- NULL
+
+#join id_visit_date back in
+imputation_by_jomo_with_id_visit_date <-
+  left_join(
+    imputation_by_jomo, 
+    id_visit_date_frame,
+    by = join_by(age_to_use, id))
+
+print("Check you haven't added rows, this number should be zero:")
+
+nrow(imputation_by_jomo_with_id_visit_date) - nrow(imputation_by_jomo)
+
+#we then remove any rows that didn't have our three important covariates of height, weight and age, where we don't trust imputations
+imputation_by_jomo_with_id_visit_date_core_data <-
+  subset(imputation_by_jomo_with_id_visit_date,
+         Imputation==0)
+
+imputation_by_jomo_with_id_visit_date_core_data_with_important_covariates <-
+  subset(imputation_by_jomo_with_id_visit_date_core_data,
+         !is.na(interpolated_height) &
+           !is.na(interpolated_weight) &
+           !is.na(age_to_use) )
+
+print("Number of visits with height, weight and age in which we can impute blood pressure")
+
+nrow(imputation_by_jomo_with_id_visit_date_core_data_with_important_covariates)
+
+imputation_by_jomo_with_id_visit_date_and_important_covariates <- 
+  subset(imputation_by_jomo_with_id_visit_date,
+         id_visit_date %in% 
+           imputation_by_jomo_with_id_visit_date_core_data_with_important_covariates$id_visit_date)
+
+print("This number should also be zero, to ensure no duplications of id_visit_date:")
+length(imputation_by_jomo_with_id_visit_date_core_data_with_important_covariates$id_visit_date) - 
+  nrow(imputation_by_jomo_with_id_visit_date_and_important_covariates) / 11
+```
+
+```{r, plot biomarker imputation from JOMO to see how it comes out}
+imputation_by_jomo$id <- 
+  as.integer(as.character(imputation_by_jomo$id))
+
+all_clusters <-
+  unique(as.numeric(imputation_by_jomo$id))
+
+#define patients who didn't have a height measurement at some point, so pull out just imputation 0
+ids_with_imputed_height <-
+  subset(imputation_by_jomo, 
+           Imputation==0 & 
+           is.na(interpolated_height))$id
+
+for (cluster in all_clusters){
+  
+imputation_by_jomo$Imputation <-
+  as.character(imputation_by_jomo$Imputation)
+
+data <- 
+  subset(imputation_by_jomo, 
+         id==cluster)
+
+print(nrow(data))
+colnames(data)
+imputed_plot <- 
+  ggplot(data=data, 
+         aes(x=age_to_use, 
+             y=ln_converted_17OHP_nmol_l_imputed_units_0)) + 
+  geom_point(aes(colour=Imputation), alpha=0.1) +
+  geom_line(aes(colour=Imputation)) + 
+  themewithlegend
+
+imputed_plot
+
+dir.create("jomo_biomarker_imputation_plots")
+dir.create("jomo_biomarker_imputation_plots/height_weight_age_sbp_dbp")
+dir.create("jomo_biomarker_imputation_plots/height_weight_age_sbp_dbp/all_patients")
+dir.create("jomo_biomarker_imputation_plots/height_weight_age_sbp_dbp/patients_with_biomarker_imputed_by_jomo")
+
+ggsave(filename=paste0("id_", cluster, ".tif"), 
+       path=paste0("jomo_biomarker_imputation_plots/height_weight_age_sbp_dbp/all_patients"),
+       plot = imputed_plot, 
+       device="tiff",  
+       width=10, 
+       height=5, 
+       compression = "lzw", 
+       limitsize=F)
+
+if (cluster %in% ids_with_imputed_height){
+ggsave(filename=paste0("id_", cluster, ".tif"), 
+       path=paste0("jomo_biomarker_imputation_plots/height_weight_age_sbp_dbp/patients_with_biomarker_imputed_by_jomo"),
+       plot = imputed_plot, 
+       device="tiff",  
+       width=10, 
+       height=5, 
+       compression = "lzw", 
+       limitsize=F)
+  
+}
+}
+```
+
+```{r, plot an overall plot of all the biomarker values}
+overall_imputed_plot <- 
+  ggplot(data=imputation_by_jomo, 
+         aes(x=age_to_use, 
+             y=ln_converted_17OHP_nmol_l_imputed_units_0)) + 
+  geom_point(
+    data=subset(imputation_by_jomo, Imputation>0),
+    aes(), 
+    alpha=0.1,
+    colour="red") +
+  geom_point(
+    data=subset(imputation_by_jomo, Imputation==0),
+    aes(), 
+    alpha=1,
+    colour="black") +
+  themewithlegend
+
+overall_imputed_plot
+
+ggsave(filename="overall_imputed_plot.tif", 
+       path=paste0("jomo_biomarker_imputation_plots/height_weight_age_sbp_dbp"),
+       plot = overall_imputed_plot, 
+       device="tiff",  
+       width=10, 
+       height=5, 
+       compression = "lzw", 
+       limitsize=F)
+```
+
+```{r, rearrange JOMO imputations to join just the variables that we've imputed ensuring lower limit of detection is sorted out and antilogged}
+imputed_variables_from_jomo <-
+  imputation_by_jomo_with_id_visit_date_and_important_covariates[,c(
+    "id_visit_date",
+    "Imputation",
+    "Systolic..mmHg....CAH.Longitudinal.Data",
+    "Diastolic..mmHg....CAH.Longitudinal.Data",
+    "ln_converted_renin_µIU_ml_imputed_units_0",
+    "ln_converted_17OHP_nmol_l_imputed_units_0",
+    "ln_converted_androstenedione_nmol_l_imputed_units_0"
+  )]
+
+#Rename the columns appropriately
+names(imputed_variables_from_jomo)[names(
+  imputed_variables_from_jomo)==
+    "Systolic..mmHg....CAH.Longitudinal.Data"] <-   
+  "systolic_imputation"
+names(imputed_variables_from_jomo)[names(
+  imputed_variables_from_jomo)==
+    "Diastolic..mmHg....CAH.Longitudinal.Data"] <- 
+  "diastolic_imputation"
+names(imputed_variables_from_jomo)[names(
+  imputed_variables_from_jomo)==
+    "ln_converted_renin_µIU_ml_imputed_units_0"] <-  
+  "ln_converted_renin_µIU_ml_imputation"
+names(imputed_variables_from_jomo)[names(
+  imputed_variables_from_jomo)==
+    "ln_converted_17OHP_nmol_l_imputed_units_0"] <- 
+  "ln_converted_17OHP_nmol_l_imputation"
+names(imputed_variables_from_jomo)[names(
+  imputed_variables_from_jomo)==
+    "ln_converted_androstenedione_nmol_l_imputed_units_0"] <- 
+  "ln_converted_androstenedione_nmol_l_imputation"
+
+#correct my log variables for lower limit of detection
+imputed_variables_from_jomo$ln_converted_renin_µIU_ml_imputation <-
+  ifelse(imputed_variables_from_jomo$ln_converted_renin_µIU_ml_imputation < 
+           ln_lower_level_of_detection_renin_µIU_ml,
+         ln_lower_level_of_detection_renin_µIU_ml,
+         imputed_variables_from_jomo$ln_converted_renin_µIU_ml_imputation)
+
+imputed_variables_from_jomo$ln_converted_17OHP_nmol_l_imputation <-
+  ifelse(imputed_variables_from_jomo$ln_converted_17OHP_nmol_l_imputation < 
+           ln_lower_level_of_detection_17ohp_nmol_l,
+         ln_lower_level_of_detection_17ohp_nmol_l,
+         imputed_variables_from_jomo$ln_converted_17OHP_nmol_l_imputation)
+
+imputed_variables_from_jomo$ln_converted_androstenedione_nmol_l_imputation <-
+  ifelse(imputed_variables_from_jomo$ln_converted_androstenedione_nmol_l_imputation < 
+           ln_lower_level_of_detection_androstenedione_nmol_l,
+         ln_lower_level_of_detection_androstenedione_nmol_l,
+         imputed_variables_from_jomo$ln_converted_androstenedione_nmol_l_imputation)
+
+#correct my log variables for upper limit of detection
+imputed_variables_from_jomo$ln_converted_renin_µIU_ml_imputation <-
+  ifelse(imputed_variables_from_jomo$ln_converted_renin_µIU_ml_imputation > 
+           ln_upper_level_of_detection_renin_µIU_ml,
+         ln_upper_level_of_detection_renin_µIU_ml,
+         imputed_variables_from_jomo$ln_converted_renin_µIU_ml_imputation)
+
+imputed_variables_from_jomo$ln_converted_17OHP_nmol_l_imputation <-
+  ifelse(imputed_variables_from_jomo$ln_converted_17OHP_nmol_l_imputation > 
+           ln_upper_level_of_detection_17ohp_nmol_l,
+         ln_upper_level_of_detection_17ohp_nmol_l,
+         imputed_variables_from_jomo$ln_converted_17OHP_nmol_l_imputation)
+
+imputed_variables_from_jomo$ln_converted_androstenedione_nmol_l_imputation <-
+  ifelse(imputed_variables_from_jomo$ln_converted_androstenedione_nmol_l_imputation > 
+           ln_upper_level_of_detection_androstenedione_nmol_l,
+         ln_upper_level_of_detection_androstenedione_nmol_l,
+         imputed_variables_from_jomo$ln_converted_androstenedione_nmol_l_imputation)
+
+
+#take the exponent of the log values to get the absolute values back
+imputed_variables_from_jomo$converted_renin_µIU_ml_imputation <-
+  exp(imputed_variables_from_jomo$ln_converted_renin_µIU_ml_imputation)
+
+imputed_variables_from_jomo$converted_17OHP_nmol_l_imputation <-
+  exp(imputed_variables_from_jomo$ln_converted_17OHP_nmol_l_imputation)
+
+imputed_variables_from_jomo$converted_androstenedione_nmol_l_imputation <-
+  exp(imputed_variables_from_jomo$ln_converted_androstenedione_nmol_l_imputation)
+
+
+
+imputed_variables_from_jomo_wide <-
+  pivot_wider(
+    data=imputed_variables_from_jomo,
+    names_from = "Imputation",
+    values_from = c(
+      "systolic_imputation",
+      "diastolic_imputation",
+      
+      "converted_17OHP_nmol_l_imputation",
+      "ln_converted_17OHP_nmol_l_imputation",
+      
+      "converted_androstenedione_nmol_l_imputation",
+      "ln_converted_androstenedione_nmol_l_imputation",
+      
+      "converted_renin_µIU_ml_imputation",
+      "ln_converted_renin_µIU_ml_imputation",
+      )
+  )
+
+print("Number of diastolic readings complete")
+sum(is.na(imputed_variables_from_jomo_wide$diastolic_imputation_0))
+print("Number of diastolic readings imputed")
+sum(!is.na(imputed_variables_from_jomo_wide$diastolic_imputation_0))
+
+print("Number of systolic readings complete")
+sum(is.na(imputed_variables_from_jomo_wide$systolic_imputation_0))
+print("Number of systolic readings imputed")
+sum(!is.na(imputed_variables_from_jomo_wide$systolic_imputation_0))
+```
+
+```{r, join in our blood pressure imputations into the main frame}
+bp_data_with_imputations <-
+  left_join(
+    bp_data,
+    imputed_variables_from_jomo_wide,
+    by="id_visit_date"
+  )
+
+print("This number should be zero to prove we haven't duplicated any columns:")
+nrow(bp_data) - nrow(bp_data_with_imputations)
+```
+
+```{r, rationalise the file name}
+bp_data <- 
+  bp_data_with_imputations
+```
+
+```{r, create missing data pattern, which is quite neat}
+mice_data <- 
+  bp_data[, c("id", 
+              "interpolated_height")]
+
+md.pattern(mice_data, 
+           plot = FALSE)
+```
+
+```{r, replace blood pressure readings and biomarker readings removed from imputations due to lack of height or weight}
+print("These are the descriptions before we repair:")
+
+nrow(bp_data)
+
+descr(bp_data$Systolic..mmHg....CAH.Longitudinal.Data)
+
+descr(bp_data$systolic_imputation_0)
+
+descr(bp_data$systolic_imputation_1)
+
+print("Remember that our imputed units column is actually the original, if needing to impute units that we've already done, then those imputations follow that pattern")
+descr(bp_data$ln_converted_17OHP_nmol_l_imputed_units_0)
+print("The final JOMO imputed units then follow this pattern")
+descr(bp_data$ln_converted_17OHP_nmol_l_imputation_0)
+
+descr(bp_data$ln_converted_17OHP_nmol_l_imputation_1)
+
+descr(bp_data$converted_17OHP_nmol_l_imputed_units_0)
+
+for (each_imputation in 0:number_of_imputations){
+  
+  systolic_column_name <- 
+    paste0("systolic_imputation_", each_imputation)
+  
+  diastolic_column_name <- 
+    paste0("diastolic_imputation_", each_imputation)
+  
+  converted_17OHP_column_name <- 
+    paste0("converted_17OHP_nmol_l_imputation_", each_imputation)
+  
+  ln_converted_17OHP_column_name <- 
+    paste0("ln_converted_17OHP_nmol_l_imputation_", each_imputation)
+  
+  converted_androstenedione_column_name <- 
+    paste0("converted_androstenedione_nmol_l_imputation_", each_imputation)
+  
+  ln_converted_androstenedione_column_name <- 
+    paste0("ln_converted_androstenedione_nmol_l_imputation_", each_imputation)
+  
+  converted_renin_column_name <- 
+    paste0("converted_renin_µIU_ml_imputation_", each_imputation)
+  
+  ln_converted_renin_column_name <- 
+    paste0("ln_converted_renin_µIU_ml_imputation_", each_imputation)
+  
+  systolic_original_column <- bp_data[,"Systolic..mmHg....CAH.Longitudinal.Data"]
+
+  diastolic_original_column <- bp_data[,"Diastolic..mmHg....CAH.Longitudinal.Data"]
+
+  converted_17OHP_original_column <- bp_data[,"converted_17OHP_nmol_l_imputed_units_0"]
+    
+  ln_converted_17OHP_original_column <- bp_data[,"ln_converted_17OHP_nmol_l_imputed_units_0"]
+    
+  converted_androstenedione_original_column <- bp_data[,"converted_androstenedione_nmol_l_imputed_units_0"]
+    
+  ln_converted_androstenedione_original_column <- bp_data[,"ln_converted_androstenedione_nmol_l_imputed_units_0"]
+    
+  converted_renin_original_column <- bp_data[,"converted_renin_µIU_ml_imputed_units_0"]
+    
+  ln_converted_renin_original_column <- bp_data[,"ln_converted_renin_µIU_ml_imputed_units_0"]
+
+  #if the new column is empty, replace it with the value of the original column    
+  bp_data[is.na(bp_data[,systolic_column_name]), systolic_column_name] <-
+    systolic_original_column[is.na(bp_data[,systolic_column_name])]
+  
+  bp_data[is.na(bp_data[,diastolic_column_name]), diastolic_column_name] <-
+    diastolic_original_column[is.na(bp_data[,diastolic_column_name])]
+  
+  bp_data[is.na(bp_data[,converted_17OHP_column_name]), converted_17OHP_column_name] <-
+    converted_17OHP_original_column[is.na(bp_data[,converted_17OHP_column_name])]
+  
+  bp_data[is.na(bp_data[,converted_androstenedione_column_name]), converted_androstenedione_column_name] <-
+    converted_androstenedione_original_column[is.na(bp_data[,converted_androstenedione_column_name])]
+  
+  bp_data[is.na(bp_data[,converted_renin_column_name]), converted_renin_column_name] <-
+    converted_renin_original_column[is.na(bp_data[,converted_renin_column_name])]
+  
+  bp_data[is.na(bp_data[,ln_converted_17OHP_column_name]), ln_converted_17OHP_column_name] <-
+    ln_converted_17OHP_original_column[is.na(bp_data[,ln_converted_17OHP_column_name])]
+  
+  bp_data[is.na(bp_data[,ln_converted_androstenedione_column_name]), ln_converted_androstenedione_column_name] <-
+    ln_converted_androstenedione_original_column[is.na(bp_data[,ln_converted_androstenedione_column_name])]
+  
+  bp_data[is.na(bp_data[,ln_converted_renin_column_name]), ln_converted_renin_column_name] <-
+    ln_converted_renin_original_column[is.na(bp_data[,ln_converted_renin_column_name])]
+}
+
+descr(bp_data$Systolic..mmHg....CAH.Longitudinal.Data)
+descr(bp_data$systolic_imputation_0)
+descr(bp_data$systolic_imputation_1)
+
+print("These are the descriptions after we repair:")
+
+nrow(bp_data)
+
+descr(bp_data$Systolic..mmHg....CAH.Longitudinal.Data)
+
+descr(bp_data$systolic_imputation_0)
+
+descr(bp_data$systolic_imputation_1)
+
+descr(bp_data$ln_converted_17OHP_nmol_l_imputed_units_0)
+
+descr(bp_data$ln_converted_androstenedione_nmol_l_imputed_units_0)
+
+descr(bp_data$converted_androstenedione_nmol_l_imputed_units_0)
+
+descr(bp_data$ln_converted_renin_µIU_ml_imputed_units_0)
+
+descr(bp_data$converted_renin_µIU_ml_imputed_units_0)
+
+
+
+descr(bp_data$converted_17OHP_nmol_l_imputation_1)
+
+descr(bp_data$ln_converted_17OHP_nmol_l_imputation_1)
+
+descr(bp_data$converted_androstenedione_nmol_l_imputation_1)
+
+descr(bp_data$ln_converted_androstenedione_nmol_l_imputation_1)
+
+descr(bp_data$converted_renin_µIU_ml_imputation_1)
+
+descr(bp_data$ln_converted_renin_µIU_ml_imputation_1)
+```
+
+```{r, check all imputations combined with original data}
+#here we put in a check - I should never have an original value and not have an imputed value for each of my imputed variables
+bp_data$systolic_imputation_check <-
+  ifelse(
+    is.na(bp_data$systolic_imputation_0) &
+      !is.na(bp_data$Systolic..mmHg....CAH.Longitudinal.Data),
+    1,
+    0
+  )
+sum(bp_data$systolic_imputation_check)
+
+bp_data$diastolic_imputation_check <-
+  ifelse(
+    is.na(bp_data$diastolic_imputation_0) &
+      !is.na(bp_data$Diastolic..mmHg....CAH.Longitudinal.Data),
+    1,
+    0
+  )
+sum(bp_data$diastolic_imputation_check)
+
+
+bp_data$ln_converted_17OHP_imputation_check <-
+  ifelse(
+    is.na(bp_data$ln_converted_17OHP_nmol_l_imputation_0) &
+      !is.na(bp_data$ln_converted_17OHP_nmol_l_imputed_units_0),
+    1,
+    0
+  )
+sum(bp_data$ln_converted_17OHP_imputation_check)
+
+
+bp_data$ln_converted_androstenedione_imputation_check <-
+  ifelse(
+    is.na(bp_data$ln_converted_androstenedione_nmol_l_imputation_0) &
+      !is.na(bp_data$ln_converted_androstenedione_nmol_l_imputed_units_0),
+    1,
+    0
+  )
+sum(bp_data$ln_converted_androstenedione_imputation_check)
+
+
+bp_data$ln_converted_renin_imputation_check <-
+  ifelse(
+    is.na(bp_data$ln_converted_renin_µIU_ml_imputation_0) &
+      !is.na(bp_data$ln_converted_renin_µIU_ml_imputed_units_0),
+    1,
+    0
+  )
+sum(bp_data$ln_converted_renin_imputation_check)
+
+bp_data$converted_17OHP_imputation_check <-
+  ifelse(
+    is.na(bp_data$converted_17OHP_nmol_l_imputation_0) &
+      !is.na(bp_data$converted_17OHP_nmol_l_imputed_units_0),
+    1,
+    0
+  )
+sum(bp_data$converted_17OHP_imputation_check)
+
+
+bp_data$converted_androstenedione_imputation_check <-
+  ifelse(
+    is.na(bp_data$converted_androstenedione_nmol_l_imputation_0) &
+      !is.na(bp_data$converted_androstenedione_nmol_l_imputed_units_0),
+    1,
+    0
+  )
+sum(bp_data$converted_androstenedione_imputation_check)
+
+
+bp_data$converted_renin_imputation_check <-
+  ifelse(
+    is.na(bp_data$converted_renin_µIU_ml_imputation_0) &
+      !is.na(bp_data$converted_renin_µIU_ml_imputed_units_0),
+    1,
+    0
+  )
+sum(bp_data$converted_renin_imputation_check)
+
+print("All those numbers should be zero, otherwise we need to appreciate where we have lost some values for these readings or markers")
+
+```
+
+
+
+```{r, end of file so save all the listed dataframes into the parent directory}
+rm(lower_level_of_detection_17ohp_nmol_l)
+rm(lower_level_of_detection_androstenedione_nmol_l)
+rm(lower_level_of_detection_renin_µIU_ml)
+
+save_bp_files_function(
+  parent_directory=location_of_data_files,
+  parent_file="file_21")
+```

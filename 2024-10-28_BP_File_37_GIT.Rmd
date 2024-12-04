@@ -1,0 +1,1050 @@
+We can now take the internally created LMS centiles, and the normative flynn centiles, and conduct bayesian multiple change point analysis to estimate ages at which the difference between the two decreases. 
+
+```{r, load packages}
+rm(list = ls())
+
+#we first establish the location of the working directory where we keep everything, depending on whether it exists (i.e. which computer we are using)
+#check C drive
+if(file.exists("C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure")){
+location_of_main_folder <-
+  "C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure"
+}
+#take the working directory otherwise, which should work every time?
+if(!exists("location_of_main_folder")){
+  location_of_main_folder <- 
+    getwd()
+}
+#paste the name of our functions folder into the path name
+location_of_functions_folder <-
+  paste0(location_of_main_folder, "/bp_functions_folder/")
+
+#load the function that loads all the libraries and sources
+source(paste0(location_of_functions_folder, "load_bp_libraries_and_sources_function.R"))
+
+#paste together the location of the data files - we don't load in the first file, but we need this location for the end
+location_of_data_files <-
+  paste0(location_of_main_folder, "/bp_data_files_to_load/")
+
+#run the function, pointing it towards the functions folder
+load_bp_libraries_and_sources_function(
+  location_of_functions_folder=location_of_functions_folder,
+  location_of_data_files=location_of_data_files
+)
+
+load_bp_files_function(previous_file_name = "file_21",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list(#we take the number of imputations that we defined when running JOMO:
+                                   "number_of_imputations"))
+
+load_bp_files_function(previous_file_name = "file_23",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list(
+    "bp_data_under_twenty_not_assigned"
+    )
+)
+
+load_bp_files_function(previous_file_name = "file_30",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list(
+    "bp_data_under_twenty_male"
+    )
+)
+
+load_bp_files_function(previous_file_name = "file_32",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list(
+    "bp_data_under_twenty_fema"
+    )
+)
+
+load_bp_files_function(previous_file_name = "file_28",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list(
+    "male_lms_systolic_centiles_imputed_combined"
+    )
+)
+
+
+load_bp_files_function(previous_file_name = "file_30",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list(
+    "male_lms_diastolic_centiles_imputed_combined"
+    )
+)
+
+
+load_bp_files_function(previous_file_name = "file_32",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list(
+    "fema_lms_systolic_centiles_imputed_combined"
+    )
+)
+
+
+load_bp_files_function(previous_file_name = "file_34",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list(
+    "fema_lms_diastolic_centiles_imputed_combined"
+    )
+)
+
+library(mcp)
+#create a directory to save our change point results into
+dir.create("changepoint_data_results")
+
+```
+
+```{r, extract the fiftieth centile of normative bp data from flynn 2017}
+flynn_chart_male_systolic <- 
+  pedbp::bp_chart("sbp", male = 1, source = "nhlbi") + ylim(50,160) + xlim(0,240)
+flynn_chart_male_systolic_data <- flynn_chart_male_systolic$data  
+flynn_chart_male_systolic_data$age_years <- 
+  flynn_chart_male_systolic_data$age / 12
+flynn_chart_male_systolic_data_median <-
+  subset(flynn_chart_male_systolic_data,
+         p==0.5)
+
+flynn_chart_fema_systolic <- 
+  pedbp::bp_chart("sbp", male = 0, source = "nhlbi") + ylim(50,160) + xlim(0,240)
+flynn_chart_fema_systolic_data <- flynn_chart_fema_systolic$data  
+flynn_chart_fema_systolic_data$age_years <- 
+  flynn_chart_fema_systolic_data$age / 12
+flynn_chart_fema_systolic_data_median <-
+  subset(flynn_chart_fema_systolic_data,
+         p==0.5)
+
+flynn_chart_male_diastolic <- 
+  pedbp::bp_chart("dbp", male = 1, source = "nhlbi") + ylim(0,120) + xlim(0,240)
+flynn_chart_male_diastolic_data <- flynn_chart_male_diastolic$data  
+flynn_chart_male_diastolic_data$age_years <- 
+  flynn_chart_male_diastolic_data$age / 12
+flynn_chart_male_diastolic_data_median <-
+  subset(flynn_chart_male_diastolic_data,
+         p==0.5)
+
+flynn_chart_fema_diastolic <- 
+  pedbp::bp_chart("dbp", male = 0, source = "nhlbi") + ylim(0,120) + xlim(0,240)
+flynn_chart_fema_diastolic_data <- flynn_chart_fema_diastolic$data  
+flynn_chart_fema_diastolic_data$age_years <- 
+  flynn_chart_fema_diastolic_data$age / 12
+flynn_chart_fema_diastolic_data_median <-
+  subset(flynn_chart_fema_diastolic_data,
+         p==0.5)
+```
+
+```{r, calculate difference between lms and normative values by ages for male systolic}
+lms_median_and_flynn_median_male_systolic <-
+  left_join(
+    male_lms_systolic_centiles_imputed_combined,
+    flynn_chart_male_systolic_data_median,
+    by=c("age_to_use"="age_years"))
+
+#first get rid of readings at an age less than 1
+lms_median_and_flynn_median_male_systolic <-
+  subset(lms_median_and_flynn_median_male_systolic,
+         age_to_use==1|age_to_use==2|age_to_use==3|age_to_use==4|age_to_use==5|age_to_use==6|age_to_use==7|age_to_use==8|age_to_use==9|age_to_use==10|age_to_use==11|age_to_use==12|age_to_use==13|age_to_use==14|age_to_use==15|age_to_use==16|age_to_use==17|age_to_use==18)
+#then use last observation carried forward on mmHg
+lms_median_and_flynn_median_male_systolic$mmHg_LOCF <- zoo::na.locf(lms_median_and_flynn_median_male_systolic$mmHg, na.rm = FALSE)
+
+#take the difference from our LMS
+lms_median_and_flynn_median_male_systolic$lms_median_minus_flynn_median_male_systolic <-
+  lms_median_and_flynn_median_male_systolic$`50` -
+  lms_median_and_flynn_median_male_systolic$mmHg_LOCF
+
+```
+
+```{r, calculate difference between lms and normative values by ages for male diastolic}
+lms_median_and_flynn_median_male_diastolic <-
+  left_join(
+    male_lms_diastolic_centiles_imputed_combined,
+    flynn_chart_male_diastolic_data_median,
+    by=c("age_to_use"="age_years"))
+
+#first get rid of readings at an age less than 1
+lms_median_and_flynn_median_male_diastolic <-
+  subset(lms_median_and_flynn_median_male_diastolic,
+         age_to_use==1|age_to_use==2|age_to_use==3|age_to_use==4|age_to_use==5|age_to_use==6|age_to_use==7|age_to_use==8|age_to_use==9|age_to_use==10|age_to_use==11|age_to_use==12|age_to_use==13|age_to_use==14|age_to_use==15|age_to_use==16|age_to_use==17|age_to_use==18)
+#then use last observation carried forward on mmHg
+lms_median_and_flynn_median_male_diastolic$mmHg_LOCF <- zoo::na.locf(lms_median_and_flynn_median_male_diastolic$mmHg, na.rm = FALSE)
+
+#take the difference from our LMS
+lms_median_and_flynn_median_male_diastolic$lms_median_minus_flynn_median_male_diastolic <-
+  lms_median_and_flynn_median_male_diastolic$`50` -
+  lms_median_and_flynn_median_male_diastolic$mmHg_LOCF
+
+```
+
+```{r, calculate difference between lms and normative values by ages for fema systolic}
+lms_median_and_flynn_median_fema_systolic <-
+  left_join(
+    fema_lms_systolic_centiles_imputed_combined,
+    flynn_chart_fema_systolic_data_median,
+    by=c("age_to_use"="age_years"))
+
+#first get rid of readings at an age less than 1
+lms_median_and_flynn_median_fema_systolic <-
+  subset(lms_median_and_flynn_median_fema_systolic,
+         age_to_use==1|age_to_use==2|age_to_use==3|age_to_use==4|age_to_use==5|age_to_use==6|age_to_use==7|age_to_use==8|age_to_use==9|age_to_use==10|age_to_use==11|age_to_use==12|age_to_use==13|age_to_use==14|age_to_use==15|age_to_use==16|age_to_use==17|age_to_use==18)
+#then use last observation carried forward on mmHg
+lms_median_and_flynn_median_fema_systolic$mmHg_LOCF <- zoo::na.locf(lms_median_and_flynn_median_fema_systolic$mmHg, na.rm = FALSE)
+
+#take the difference from our LMS
+lms_median_and_flynn_median_fema_systolic$lms_median_minus_flynn_median_fema_systolic <-
+  lms_median_and_flynn_median_fema_systolic$`50` -
+  lms_median_and_flynn_median_fema_systolic$mmHg_LOCF
+
+```
+
+```{r, calculate difference between lms and normative values by ages for fema diastolic}
+lms_median_and_flynn_median_fema_diastolic <-
+  left_join(
+    fema_lms_diastolic_centiles_imputed_combined,
+    flynn_chart_fema_diastolic_data_median,
+    by=c("age_to_use"="age_years"))
+
+#first get rid of readings at an age less than 1
+lms_median_and_flynn_median_fema_diastolic <-
+  subset(lms_median_and_flynn_median_fema_diastolic,
+         age_to_use==1|age_to_use==2|age_to_use==3|age_to_use==4|age_to_use==5|age_to_use==6|age_to_use==7|age_to_use==8|age_to_use==9|age_to_use==10|age_to_use==11|age_to_use==12|age_to_use==13|age_to_use==14|age_to_use==15|age_to_use==16|age_to_use==17|age_to_use==18)
+#then use last observation carried forward on mmHg
+lms_median_and_flynn_median_fema_diastolic$mmHg_LOCF <- zoo::na.locf(lms_median_and_flynn_median_fema_diastolic$mmHg, na.rm = FALSE)
+
+#take the difference from our LMS
+lms_median_and_flynn_median_fema_diastolic$lms_median_minus_flynn_median_fema_diastolic <-
+  lms_median_and_flynn_median_fema_diastolic$`50` -
+  lms_median_and_flynn_median_fema_diastolic$mmHg_LOCF
+
+```
+
+##############################
+Running the changepoint analysis
+###############################
+
+```{r, male systolic bayesian changepoint analysis }
+digits_to_print <- 1
+
+male_systolic_changepoint_model <- list(
+  lms_median_minus_flynn_median_male_systolic ~ 1 + age_to_use, 
+  lms_median_minus_flynn_median_male_systolic ~ 1 ~ 0  
+)
+
+male_systolic_changepoint_model_fit <-
+  mcp(male_systolic_changepoint_model, 
+      data = lms_median_and_flynn_median_male_systolic)
+
+summary_male_systolic_changepoint_model_fit <- 
+  summary(male_systolic_changepoint_model_fit)
+
+sink("changepoint_data_results/summary_male_systolic_changepoint_model_fit.txt")
+print(summary_male_systolic_changepoint_model_fit)
+sink()
+
+male_systolic_changepoint_model_plot <- 
+  plot(male_systolic_changepoint_model_fit)
+
+#we can extract the data for the individual changepoint lines for each chain
+male_systolic_changepoint_model_chain_lines_ggplot <-
+  male_systolic_changepoint_model_plot$layers[[2]]
+
+male_systolic_changepoint_model_chain_lines_data <- 
+  male_systolic_changepoint_model_plot$layers[[2]]$data
+
+#we can plot adding a title
+
+male_systolic_changepoint_model_plot + 
+  labs(title = "Male systolic")
+
+
+```
+
+
+```{r, extract the results in text format of the male systolic change point model}
+#extract the posterior_fits_male_systolic, which is how the lines are drawn on the graph and where we can get the plateau from 
+posterior_fits_male_systolic <- fitted(male_systolic_changepoint_model_fit)
+
+intercept_male_systolic_changepoint_model_fit <-
+  subset(summary_male_systolic_changepoint_model_fit, name=="int_1")
+change_point_male_systolic_changepoint_model_fit <-
+  subset(summary_male_systolic_changepoint_model_fit, name=="cp_1")
+slope_male_systolic_changepoint_model_fit <-
+  subset(summary_male_systolic_changepoint_model_fit, name=="age_to_use_1")
+print("male_systolic_changepoint_model_fit")
+
+male_systolic_intercept_text <-
+  paste0(
+    "intercept (mmHg) = ",
+    round(intercept_male_systolic_changepoint_model_fit$mean,
+          digits=digits_to_print),
+    " (",
+    round(intercept_male_systolic_changepoint_model_fit$lower,
+          digits=digits_to_print),
+    " to ",
+    round(intercept_male_systolic_changepoint_model_fit$upper,
+          digits=digits_to_print),
+    ") [",
+    round(intercept_male_systolic_changepoint_model_fit$Rhat,
+          digits=3),
+    "]\n")
+
+male_systolic_slope_text <-
+  paste0(
+    "slope (mmHg/year) = ",
+    round(slope_male_systolic_changepoint_model_fit$mean,
+          digits=digits_to_print),
+    " (",
+    round(slope_male_systolic_changepoint_model_fit$lower,
+          digits=digits_to_print),
+    " to ",
+    round(slope_male_systolic_changepoint_model_fit$upper,
+          digits=digits_to_print),
+    ") [",
+    round(slope_male_systolic_changepoint_model_fit$Rhat,
+          digits=3),
+    "]\n")
+
+male_systolic_change_point_text <-
+  paste0(
+    "change point age (years) = ",
+    round(change_point_male_systolic_changepoint_model_fit$mean,
+          digits=digits_to_print),
+    " (",
+    round(change_point_male_systolic_changepoint_model_fit$lower,
+          digits=digits_to_print),
+    " to ",
+    round(change_point_male_systolic_changepoint_model_fit$upper,
+          digits=digits_to_print),
+    ") [",
+    round(change_point_male_systolic_changepoint_model_fit$Rhat,
+          digits=3),
+    "]\n")
+#we then need to use the height of the plateau from the posterior fits
+posterior_fits_male_systolic_last <-
+  subset(posterior_fits_male_systolic, age_to_use==18)
+
+male_systolic_plateau_text <-
+  paste0(
+    "plateau (mmHg) = ",
+    round(posterior_fits_male_systolic_last$fitted,
+          digits=digits_to_print),
+    " (",
+    round(posterior_fits_male_systolic_last$Q2.5,
+          digits=digits_to_print),
+    " to ",
+    round(posterior_fits_male_systolic_last$Q97.5,
+          digits=digits_to_print),
+    ") [-]\n")
+
+cat(male_systolic_intercept_text)
+cat(male_systolic_slope_text)
+cat(male_systolic_change_point_text)
+cat(male_systolic_plateau_text)
+```
+
+```{r, male diastolic bayesian changepoint analysis }
+
+male_diastolic_changepoint_model <- list(
+  lms_median_minus_flynn_median_male_diastolic ~ 1 + age_to_use, 
+  lms_median_minus_flynn_median_male_diastolic ~ 1 ~ 0  
+)
+
+# Interpret, but do not sample.
+male_diastolic_changepoint_model_fit <-
+  mcp(male_diastolic_changepoint_model, 
+      data = lms_median_and_flynn_median_male_diastolic)
+summary_male_diastolic_changepoint_model_fit <-
+  summary(male_diastolic_changepoint_model_fit)
+
+sink("changepoint_data_results/summary_male_diastolic_changepoint_model_fit.txt")
+print(summary_male_diastolic_changepoint_model_fit)
+sink()
+
+male_diastolic_changepoint_model_plot <- plot(male_diastolic_changepoint_model_fit)
+#we can extract the data for the individual changepoint lines for each chain
+male_diastolic_changepoint_model_chain_lines_ggplot <-
+  male_diastolic_changepoint_model_plot$layers[[2]]
+male_diastolic_changepoint_model_chain_lines_data <- 
+  male_diastolic_changepoint_model_plot$layers[[2]]$data
+#we can plot adding a title
+male_diastolic_changepoint_model_plot + labs(title = "Male diastolic")
+
+```
+
+
+```{r, extract the results in text format of the male diastolic change point model}
+#extract the posterior_fits_male_diastolic, which is how the lines are drawn on the graph and where we can get the plateau from 
+posterior_fits_male_diastolic <- fitted(male_diastolic_changepoint_model_fit)
+
+intercept_male_diastolic_changepoint_model_fit <-
+  subset(summary_male_diastolic_changepoint_model_fit, name=="int_1")
+change_point_male_diastolic_changepoint_model_fit <-
+  subset(summary_male_diastolic_changepoint_model_fit, name=="cp_1")
+slope_male_diastolic_changepoint_model_fit <-
+  subset(summary_male_diastolic_changepoint_model_fit, name=="age_to_use_1")
+print("male_diastolic_changepoint_model_fit")
+
+male_diastolic_intercept_text <-
+  paste0(
+    "intercept (mmHg) = ",
+    round(intercept_male_diastolic_changepoint_model_fit$mean,
+          digits=digits_to_print),
+    " (",
+    round(intercept_male_diastolic_changepoint_model_fit$lower,
+          digits=digits_to_print),
+    " to ",
+    round(intercept_male_diastolic_changepoint_model_fit$upper,
+          digits=digits_to_print),
+    ") [",
+    round(intercept_male_diastolic_changepoint_model_fit$Rhat,
+          digits=3),
+    "]\n")
+
+male_diastolic_slope_text <-
+  paste0(
+    "slope (mmHg/year) = ",
+    round(slope_male_diastolic_changepoint_model_fit$mean,
+          digits=digits_to_print),
+    " (",
+    round(slope_male_diastolic_changepoint_model_fit$lower,
+          digits=digits_to_print),
+    " to ",
+    round(slope_male_diastolic_changepoint_model_fit$upper,
+          digits=digits_to_print),
+    ") [",
+    round(slope_male_diastolic_changepoint_model_fit$Rhat,
+          digits=3),
+    "]\n")
+
+male_diastolic_change_point_text <-
+  paste0(
+    "change point age (years) = ",
+    round(change_point_male_diastolic_changepoint_model_fit$mean,
+          digits=digits_to_print),
+    " (",
+    round(change_point_male_diastolic_changepoint_model_fit$lower,
+          digits=digits_to_print),
+    " to ",
+    round(change_point_male_diastolic_changepoint_model_fit$upper,
+          digits=digits_to_print),
+    ") [",
+    round(change_point_male_diastolic_changepoint_model_fit$Rhat,
+          digits=3),
+    "]\n")
+#we then need to use the height of the plateau from the posterior fits
+posterior_fits_male_diastolic_last <-
+  subset(posterior_fits_male_diastolic, age_to_use==18)
+
+male_diastolic_plateau_text <-
+  paste0(
+    "plateau (mmHg) = ",
+    round(posterior_fits_male_diastolic_last$fitted,
+          digits=digits_to_print),
+    " (",
+    round(posterior_fits_male_diastolic_last$Q2.5,
+          digits=digits_to_print),
+    " to ",
+    round(posterior_fits_male_diastolic_last$Q97.5,
+          digits=digits_to_print),
+    ") [-]\n")
+
+cat(male_diastolic_intercept_text)
+cat(male_diastolic_slope_text)
+cat(male_diastolic_change_point_text)
+cat(male_diastolic_plateau_text)
+```
+
+
+
+```{r, fema systolic bayesian changepoint analysis }
+
+fema_systolic_changepoint_model <- list(
+  lms_median_minus_flynn_median_fema_systolic ~ 1 + age_to_use, 
+  lms_median_minus_flynn_median_fema_systolic ~ 1 ~ 0  
+)
+
+# Interpret, but do not sample.
+fema_systolic_changepoint_model_fit <-
+  mcp(fema_systolic_changepoint_model, 
+      data = lms_median_and_flynn_median_fema_systolic)
+
+
+sink("changepoint_data_results/fema_systolic_changepoint_model_fit.txt")
+print(fema_systolic_changepoint_model_fit)
+sink()
+
+summary_fema_systolic_changepoint_model_fit <- 
+  summary(fema_systolic_changepoint_model_fit)
+fema_systolic_changepoint_model_plot <- plot(fema_systolic_changepoint_model_fit)
+#we can extract the data for the individual changepoint lines for each chain
+fema_systolic_changepoint_model_chain_lines_ggplot <-
+  fema_systolic_changepoint_model_plot$layers[[2]]
+fema_systolic_changepoint_model_chain_lines_data <- 
+  fema_systolic_changepoint_model_plot$layers[[2]]$data
+#we can plot adding a title
+fema_systolic_changepoint_model_plot + labs(title = "Fema systolic")
+```
+
+
+```{r, extract the results in text format of the fema systolic change point model}
+#extract the posterior_fits_fema_systolic, which is how the lines are drawn on the graph and where we can get the plateau from 
+posterior_fits_fema_systolic <- fitted(fema_systolic_changepoint_model_fit)
+
+intercept_fema_systolic_changepoint_model_fit <-
+  subset(summary_fema_systolic_changepoint_model_fit, name=="int_1")
+change_point_fema_systolic_changepoint_model_fit <-
+  subset(summary_fema_systolic_changepoint_model_fit, name=="cp_1")
+slope_fema_systolic_changepoint_model_fit <-
+  subset(summary_fema_systolic_changepoint_model_fit, name=="age_to_use_1")
+print("fema_systolic_changepoint_model_fit")
+
+fema_systolic_intercept_text <-
+  paste0(
+    "intercept (mmHg) = ",
+    round(intercept_fema_systolic_changepoint_model_fit$mean,
+          digits=digits_to_print),
+    " (",
+    round(intercept_fema_systolic_changepoint_model_fit$lower,
+          digits=digits_to_print),
+    " to ",
+    round(intercept_fema_systolic_changepoint_model_fit$upper,
+          digits=digits_to_print),
+    ") [",
+    round(intercept_fema_systolic_changepoint_model_fit$Rhat,
+          digits=3),
+    "]\n")
+
+fema_systolic_slope_text <-
+  paste0(
+    "slope (mmHg/year) = ",
+    round(slope_fema_systolic_changepoint_model_fit$mean,
+          digits=digits_to_print),
+    " (",
+    round(slope_fema_systolic_changepoint_model_fit$lower,
+          digits=digits_to_print),
+    " to ",
+    round(slope_fema_systolic_changepoint_model_fit$upper,
+          digits=digits_to_print),
+    ") [",
+    round(slope_fema_systolic_changepoint_model_fit$Rhat,
+          digits=3),
+    "]\n")
+
+fema_systolic_change_point_text <-
+  paste0(
+    "change point age (years) = ",
+    round(change_point_fema_systolic_changepoint_model_fit$mean,
+          digits=digits_to_print),
+    " (",
+    round(change_point_fema_systolic_changepoint_model_fit$lower,
+          digits=digits_to_print),
+    " to ",
+    round(change_point_fema_systolic_changepoint_model_fit$upper,
+          digits=digits_to_print),
+    ") [",
+    round(change_point_fema_systolic_changepoint_model_fit$Rhat,
+          digits=3),
+    "]\n")
+#we then need to use the height of the plateau from the posterior fits
+posterior_fits_fema_systolic_last <-
+  subset(posterior_fits_fema_systolic, age_to_use==18)
+
+fema_systolic_plateau_text <-
+  paste0(
+    "plateau (mmHg) = ",
+    round(posterior_fits_fema_systolic_last$fitted,
+          digits=digits_to_print),
+    " (",
+    round(posterior_fits_fema_systolic_last$Q2.5,
+          digits=digits_to_print),
+    " to ",
+    round(posterior_fits_fema_systolic_last$Q97.5,
+          digits=digits_to_print),
+    ") [-]\n")
+
+cat(fema_systolic_intercept_text)
+cat(fema_systolic_slope_text)
+cat(fema_systolic_change_point_text)
+cat(fema_systolic_plateau_text)
+```
+
+
+```{r, fema diastolic bayesian changepoint analysis }
+
+fema_diastolic_changepoint_model <- list(
+  lms_median_minus_flynn_median_fema_diastolic ~ 1 + age_to_use, 
+  lms_median_minus_flynn_median_fema_diastolic ~ 1 ~ 0  
+)
+
+# Interpret, but do not sample.
+fema_diastolic_changepoint_model_fit <-
+  mcp(fema_diastolic_changepoint_model, 
+      data = lms_median_and_flynn_median_fema_diastolic)
+
+summary_fema_diastolic_changepoint_model_fit <- 
+  summary(fema_diastolic_changepoint_model_fit)
+
+
+sink("changepoint_data_results/summary_fema_diastolic_changepoint_model_fit.txt")
+print(summary_fema_diastolic_changepoint_model_fit)
+sink()
+
+fema_diastolic_changepoint_model_plot <- 
+  plot(fema_diastolic_changepoint_model_fit)
+
+#we can extract the data for the individual changepoint lines for each chain
+fema_diastolic_changepoint_model_chain_lines_ggplot <-
+  fema_diastolic_changepoint_model_plot$layers[[2]]
+fema_diastolic_changepoint_model_chain_lines_data <- 
+  fema_diastolic_changepoint_model_plot$layers[[2]]$data
+
+#we can plot adding a title
+fema_diastolic_changepoint_model_plot + labs(title = "Fema diastolic")
+```
+
+```{r, extract the results in text format of the fema diastolic change point model}
+#extract the posterior_fits_fema_diastolic, which is how the lines are drawn on the graph and where we can get the plateau from 
+posterior_fits_fema_diastolic <- fitted(fema_diastolic_changepoint_model_fit)
+
+intercept_fema_diastolic_changepoint_model_fit <-
+  subset(summary_fema_diastolic_changepoint_model_fit, name=="int_1")
+change_point_fema_diastolic_changepoint_model_fit <-
+  subset(summary_fema_diastolic_changepoint_model_fit, name=="cp_1")
+slope_fema_diastolic_changepoint_model_fit <-
+  subset(summary_fema_diastolic_changepoint_model_fit, name=="age_to_use_1")
+print("fema_diastolic_changepoint_model_fit")
+
+fema_diastolic_intercept_text <-
+  paste0(
+    "intercept (mmHg) = ",
+    round(intercept_fema_diastolic_changepoint_model_fit$mean,
+          digits=digits_to_print),
+    " (",
+    round(intercept_fema_diastolic_changepoint_model_fit$lower,
+          digits=digits_to_print),
+    " to ",
+    round(intercept_fema_diastolic_changepoint_model_fit$upper,
+          digits=digits_to_print),
+    ") [",
+    round(intercept_fema_diastolic_changepoint_model_fit$Rhat,
+          digits=3),
+    "]\n")
+
+fema_diastolic_slope_text <-
+  paste0(
+    "slope (mmHg/year) = ",
+    round(slope_fema_diastolic_changepoint_model_fit$mean,
+          digits=digits_to_print),
+    " (",
+    round(slope_fema_diastolic_changepoint_model_fit$lower,
+          digits=digits_to_print),
+    " to ",
+    round(slope_fema_diastolic_changepoint_model_fit$upper,
+          digits=digits_to_print),
+    ") [",
+    round(slope_fema_diastolic_changepoint_model_fit$Rhat,
+          digits=3),
+    "]\n")
+
+fema_diastolic_change_point_text <-
+  paste0(
+    "change point age (years) = ",
+    round(change_point_fema_diastolic_changepoint_model_fit$mean,
+          digits=digits_to_print),
+    " (",
+    round(change_point_fema_diastolic_changepoint_model_fit$lower,
+          digits=digits_to_print),
+    " to ",
+    round(change_point_fema_diastolic_changepoint_model_fit$upper,
+          digits=digits_to_print),
+    ") [",
+    round(change_point_fema_diastolic_changepoint_model_fit$Rhat,
+          digits=3),
+    "]\n")
+#we then need to use the height of the plateau from the posterior fits
+posterior_fits_fema_diastolic_last <-
+  subset(posterior_fits_fema_diastolic, age_to_use==18)
+
+fema_diastolic_plateau_text <-
+  paste0(
+    "plateau (mmHg) = ",
+    round(posterior_fits_fema_diastolic_last$fitted,
+          digits=digits_to_print),
+    " (",
+    round(posterior_fits_fema_diastolic_last$Q2.5,
+          digits=digits_to_print),
+    " to ",
+    round(posterior_fits_fema_diastolic_last$Q97.5,
+          digits=digits_to_print),
+    ") [-]\n")
+
+cat(fema_diastolic_intercept_text)
+cat(fema_diastolic_slope_text)
+cat(fema_diastolic_change_point_text)
+cat(fema_diastolic_plateau_text)
+```
+
+
+```{r, reduce frames of change point differences for purposes of plotting}
+lms_median_and_flynn_median_male_systolic_nona <-
+  subset(
+    lms_median_and_flynn_median_male_systolic,
+    !is.na(mmHg)
+  )
+lms_median_and_flynn_median_male_diastolic_nona <-
+  subset(
+    lms_median_and_flynn_median_male_diastolic,
+    !is.na(mmHg)
+  )
+lms_median_and_flynn_median_fema_systolic_nona <-
+  subset(
+    lms_median_and_flynn_median_fema_systolic,
+    !is.na(mmHg)
+  )
+lms_median_and_flynn_median_fema_diastolic_nona <-
+  subset(
+    lms_median_and_flynn_median_fema_diastolic,
+    !is.na(mmHg)
+  )
+```
+
+```{r, plot all change point analysis on one graph}
+#first we create character column versions of the iteration for the purposes of our lines
+male_systolic_changepoint_model_chain_lines_data$group <-
+  as.character(male_systolic_changepoint_model_chain_lines_data$.iteration)
+male_diastolic_changepoint_model_chain_lines_data$group <-
+  as.character(male_diastolic_changepoint_model_chain_lines_data$.iteration)
+fema_systolic_changepoint_model_chain_lines_data$group <-
+  as.character(fema_systolic_changepoint_model_chain_lines_data$.iteration)
+fema_diastolic_changepoint_model_chain_lines_data$group <-
+  as.character(fema_diastolic_changepoint_model_chain_lines_data$.iteration)
+
+specific_line_alpha <- 0.4
+specific_point_alpha <- 0.2
+specific_chain_line_alpha <- 0.1
+specific_linewidth <- 1.5
+specific_point_size <- 1.5
+specific_point_stroke <- 2
+male_systolic_colour <- "blue"
+male_diastolic_colour <- "darkblue"
+male_diastolic_colour <- "blue"
+fema_systolic_colour <- "red"
+fema_diastolic_colour <- "darkred"
+fema_diastolic_colour <- "red"
+systolic_linetype <- "solid"
+diastolic_linetype <- "longdash"
+systolic_shapetype <- "plus"
+diastolic_shapetype <- "cross"  
+
+combined_changepoint_plot <-
+ggplot() + 
+  geom_point(data=lms_median_and_flynn_median_male_systolic_nona,
+             aes(
+    x=age_to_use, 
+    y=lms_median_minus_flynn_median_male_systolic), 
+    colour = male_systolic_colour,
+    alpha=specific_point_alpha, 
+    shape=systolic_shapetype, 
+    size=specific_point_size, 
+    stroke=specific_point_stroke) +
+  geom_line(data=subset(posterior_fits_male_systolic, 
+                        age_to_use<=18),
+            aes(
+              x=age_to_use,
+              y=fitted
+            ), 
+    linewidth=specific_linewidth,
+    colour = male_systolic_colour,
+    alpha=specific_line_alpha,
+    linetype=systolic_linetype) + 
+  geom_point(data=lms_median_and_flynn_median_male_diastolic_nona,
+             aes(
+    x=age_to_use, 
+    y=lms_median_minus_flynn_median_male_diastolic), 
+    colour = male_diastolic_colour,
+    alpha=specific_point_alpha,
+    shape=diastolic_shapetype, 
+    size=specific_point_size, 
+    stroke=specific_point_stroke) +
+  geom_line(data=subset(posterior_fits_male_diastolic, 
+                        age_to_use<=18),
+            aes(
+              x=age_to_use,
+              y=fitted
+            ), 
+    linewidth=specific_linewidth,
+    colour = male_diastolic_colour,
+    alpha=specific_line_alpha,
+    linetype=diastolic_linetype) + 
+  geom_point(data=lms_median_and_flynn_median_fema_systolic_nona,
+             aes(
+    x=age_to_use, 
+    y=lms_median_minus_flynn_median_fema_systolic), 
+    colour = fema_systolic_colour,
+    alpha=specific_point_alpha,
+    shape=systolic_shapetype, 
+    size=specific_point_size, 
+    stroke=specific_point_stroke) +
+  geom_line(data=subset(posterior_fits_fema_systolic, 
+                        age_to_use<=18),
+            aes(
+              x=age_to_use,
+              y=fitted
+            ), 
+    linewidth=specific_linewidth,
+    colour = fema_systolic_colour,
+    alpha=specific_line_alpha,
+    linetype=systolic_linetype) + 
+  geom_point(data=lms_median_and_flynn_median_fema_diastolic_nona,
+             aes(
+    x=age_to_use, 
+    y=lms_median_minus_flynn_median_fema_diastolic), 
+    colour = fema_diastolic_colour,
+    alpha=specific_point_alpha,
+    shape=diastolic_shapetype, 
+    size=specific_point_size, 
+    stroke=specific_point_stroke) +
+  geom_line(data=subset(posterior_fits_fema_diastolic, 
+                        age_to_use<=18),
+            aes(
+              x=age_to_use,
+              y=fitted
+            ), 
+    linewidth=specific_linewidth,
+    colour = fema_diastolic_colour,
+    alpha=specific_line_alpha,
+    linetype=diastolic_linetype) +
+  geom_line(data=subset(male_systolic_changepoint_model_chain_lines_data, 
+                        age_to_use<=18),
+            aes(
+              x=age_to_use,
+              y=lms_median_minus_flynn_median_male_systolic,
+              group=group
+            ),
+            colour=male_systolic_colour,
+            alpha=specific_chain_line_alpha) +
+  geom_line(data=subset(male_diastolic_changepoint_model_chain_lines_data, 
+                        age_to_use<=18),
+            aes(
+              x=age_to_use,
+              y=lms_median_minus_flynn_median_male_diastolic,
+              group=group
+            ),
+            colour=male_diastolic_colour,
+            alpha=specific_chain_line_alpha) +
+  geom_line(data=subset(fema_systolic_changepoint_model_chain_lines_data, 
+                        age_to_use<=18),
+            aes(
+              x=age_to_use,
+              y=lms_median_minus_flynn_median_fema_systolic,
+              group=group
+            ),
+            colour=fema_systolic_colour,
+            alpha=specific_chain_line_alpha) +
+  geom_line(data=subset(fema_diastolic_changepoint_model_chain_lines_data, 
+                        age_to_use<=18),
+            aes(
+              x=age_to_use,
+              y=lms_median_minus_flynn_median_fema_diastolic,
+              group=group
+            ),
+            colour=fema_diastolic_colour,
+            alpha=specific_chain_line_alpha) +
+  scale_x_continuous(name = "Age (years)",
+                     limits=c(0,18),
+    breaks=c(seq(0,18, by=2))) +
+  scale_y_continuous(name = "CAH patient blood pressure - normative blood pressure (mmHg)",
+                     limits=c(0,30),
+    breaks=c(seq(0,30, by=5))) +
+  theme(panel.background = element_rect(fill="white", colour="azure2"), 
+                               legend.position = "none",
+                               panel.grid.major = element_line(colour="azure2") ,
+                               axis.line.x.bottom = element_line(colour="black") ,
+                               axis.line.y.left = element_line(colour="black") ,
+                               #plot.title = element_text(size=12, hjust=0.5),
+                               #plot.subtitle = element_text(size=9, hjust=0.5),
+                               plot.title = element_blank(),
+                               plot.subtitle = element_blank(),
+                               axis.text=element_text(size=10),
+                               axis.title=element_text(size=10, face="bold"),
+                               #change stuff for facet labels
+                               strip.background =element_rect(fill="black", colour="black"),
+                               strip.text = element_text(colour = 'white', size=12))
+
+combined_changepoint_plot
+```
+
+
+```{r, save the combined plot}
+#save our plot
+dir.create("change_point_plots")
+ggsave(filename=paste0("combined_changepoint_plot.tif"), 
+       path=paste0("change_point_plots"),
+       plot = combined_changepoint_plot, 
+       device="tiff",  
+       width=10, 
+       height=5, 
+       compression = "lzw", 
+       limitsize=F)
+```
+```{r, rerender changepoint plot just to steal points for key without chain lines}
+changepoint_plot_to_poach_for_key <-
+ggplot() + 
+  geom_point(data=lms_median_and_flynn_median_male_systolic_nona,
+             aes(
+    x=age_to_use, 
+    y=lms_median_minus_flynn_median_male_systolic), 
+    colour = male_systolic_colour,
+    alpha=specific_point_alpha, 
+    shape=systolic_shapetype, 
+    size=specific_point_size, 
+    stroke=specific_point_stroke) +
+#  geom_line(data=subset(posterior_fits_male_systolic, 
+#                        age_to_use<=18),
+#            aes(
+#              x=age_to_use,
+#              y=fitted
+#            ), 
+#    linewidth=specific_linewidth,
+#    colour = male_systolic_colour,
+#    alpha=specific_line_alpha,
+#    linetype=systolic_linetype) + 
+  geom_point(data=lms_median_and_flynn_median_male_diastolic_nona,
+             aes(
+    x=age_to_use, 
+    y=lms_median_minus_flynn_median_male_diastolic), 
+    colour = male_diastolic_colour,
+    alpha=specific_point_alpha,
+    shape=diastolic_shapetype, 
+    size=specific_point_size, 
+    stroke=specific_point_stroke) +
+#  geom_line(data=subset(posterior_fits_male_diastolic, 
+#                        age_to_use<=18),
+#            aes(
+#              x=age_to_use,
+#              y=fitted
+#            ), 
+#    linewidth=specific_linewidth,
+#    colour = male_diastolic_colour,
+#    alpha=specific_line_alpha,
+#    linetype=diastolic_linetype) + 
+  geom_point(data=lms_median_and_flynn_median_fema_systolic_nona,
+             aes(
+    x=age_to_use, 
+    y=lms_median_minus_flynn_median_fema_systolic), 
+    colour = fema_systolic_colour,
+    alpha=specific_point_alpha,
+    shape=systolic_shapetype, 
+    size=specific_point_size, 
+    stroke=specific_point_stroke) +
+#  geom_line(data=subset(posterior_fits_fema_systolic, 
+#                        age_to_use<=18),
+#            aes(
+#              x=age_to_use,
+#              y=fitted
+#            ), 
+#    linewidth=specific_linewidth,
+#    colour = fema_systolic_colour,
+#    alpha=specific_line_alpha,
+#    linetype=systolic_linetype) + 
+  geom_point(data=lms_median_and_flynn_median_fema_diastolic_nona,
+             aes(
+    x=age_to_use, 
+    y=lms_median_minus_flynn_median_fema_diastolic), 
+    colour = fema_diastolic_colour,
+    alpha=specific_point_alpha,
+    shape=diastolic_shapetype, 
+    size=specific_point_size, 
+    stroke=specific_point_stroke) +
+#  geom_line(data=subset(posterior_fits_fema_diastolic, 
+#                        age_to_use<=18),
+#            aes(
+#              x=age_to_use,
+#              y=fitted
+#            ), 
+#    linewidth=specific_linewidth,
+#    colour = fema_diastolic_colour,
+#    alpha=specific_line_alpha,
+#    linetype=diastolic_linetype) +
+  scale_x_continuous(name = "Age (years)",
+                     limits=c(0,18),
+    breaks=c(seq(0,18, by=2))) +
+  scale_y_continuous(name = "CAH patient blood pressure - normative blood pressure (mmHg)",
+                     limits=c(0,30),
+    breaks=c(seq(0,30, by=5))) +
+  theme(panel.background = element_rect(fill="white", colour="azure2"), 
+                               legend.position = "none",
+                               panel.grid.major = element_blank() ,
+                               axis.line.x.bottom = element_line(colour="black") ,
+                               axis.line.y.left = element_line(colour="black") ,
+                               #plot.title = element_text(size=12, hjust=0.5),
+                               #plot.subtitle = element_text(size=9, hjust=0.5),
+                               plot.title = element_blank(),
+                               plot.subtitle = element_blank(),
+                               axis.text=element_text(size=10),
+                               axis.title=element_text(size=10, face="bold"),
+                               #change stuff for facet labels
+                               strip.background =element_rect(fill="black", colour="black"),
+                               strip.text = element_text(colour = 'white', size=12))
+
+changepoint_plot_to_poach_for_key
+ggsave(filename=paste0("changepoint_plot_to_poach_for_key.tif"), 
+       path=paste0("change_point_plots"),
+       plot = changepoint_plot_to_poach_for_key, 
+       device="tiff",  
+       width=10, 
+       height=5, 
+       compression = "lzw", 
+       limitsize=F)
+```
+
+
+```{r, put all change point results into a single text file}
+sink("changepoint_data_results/full_changeppoint_and_plateau_results_collated.txt")
+cat("Male systolic: \n")
+cat(male_systolic_intercept_text)
+cat(male_systolic_slope_text)
+cat(male_systolic_change_point_text)
+cat(male_systolic_plateau_text)
+cat(" \n")
+
+cat("Male diastolic: \n")
+cat(male_diastolic_intercept_text)
+cat(male_diastolic_slope_text)
+cat(male_diastolic_change_point_text)
+cat(male_diastolic_plateau_text)
+cat(" \n")
+
+cat("Fema systolic: \n")
+cat(fema_systolic_intercept_text)
+cat(fema_systolic_slope_text)
+cat(fema_systolic_change_point_text)
+cat(fema_systolic_plateau_text)
+cat(" \n")
+
+cat("Fema diastolic: \n")
+cat(fema_diastolic_intercept_text)
+cat(fema_diastolic_slope_text)
+cat(fema_diastolic_change_point_text)
+cat(fema_diastolic_plateau_text)
+cat(" \n")
+sink()
+```
+
+
+```{r, clear variables to prevent unnecessary saves}
+rm(number_of_imputations)
+rm(bp_data_under_twenty_male)
+rm(bp_data_under_twenty_fema)
+rm(bp_data_under_twenty_not_assigned)
+rm(male_lms_systolic_centiles_imputed_combined)
+rm(male_lms_diastolic_centiles_imputed_combined)
+rm(fema_lms_systolic_centiles_imputed_combined)
+rm(fema_lms_diastolic_centiles_imputed_combined)
+```
+
+
+```{r, end of file so save all the listed dataframes into the parent directory}
+save_bp_files_function(
+  parent_directory=location_of_data_files,
+  parent_file="file_37")
+Sys.time()
+```

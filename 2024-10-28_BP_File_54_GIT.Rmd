@@ -1,0 +1,225 @@
+Overall descriptions of variables going into joint modelling
+
+```{r, load packages}
+rm(list = ls())
+
+#we first establish the location of the working directory where we keep everything, depending on whether it exists (i.e. which computer we are using)
+#check C drive
+if(file.exists("C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure")){
+location_of_main_folder <-
+  "C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure"
+}
+#take the working directory otherwise, which should work every time?
+if(!exists("location_of_main_folder")){
+  location_of_main_folder <- 
+    getwd()
+}
+#paste the name of our functions folder into the path name
+location_of_functions_folder <-
+  paste0(location_of_main_folder, "/bp_functions_folder/")
+
+#load the function that loads all the libraries and sources
+source(paste0(location_of_functions_folder, "load_bp_libraries_and_sources_function.R"))
+
+#paste together the location of the data files - we don't load in the first file, but we need this location for the end
+location_of_data_files <-
+  paste0(location_of_main_folder, "/bp_data_files_to_load/")
+
+#run the function, pointing it towards the functions folder
+load_bp_libraries_and_sources_function(
+  location_of_functions_folder=location_of_functions_folder,
+  location_of_data_files=location_of_data_files
+)
+
+load_bp_files_function(previous_file_name = "file_21",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list(
+    #we take the number of imputations that we defined when running JOMO:
+                                   "number_of_imputations"))
+
+
+load_bp_files_function(previous_file_name = "file_38",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list(
+    "bp_data_under_twenty"
+    )
+)
+
+
+
+descr(bp_data_under_twenty$Height..cm....CAH.Longitudinal.Data_original)
+descr(bp_data_under_twenty$manually_corrected_height)
+descr(bp_data_under_twenty$fludrocortisone_dose_original)
+descr(bp_data_under_twenty$complete_case_total_daily_hydrocortisone_equivalent_per_bsa)
+
+```
+
+```{r, define alpha for the fill of the histograms}
+histogram_alpha_fill <- 0.4
+```
+
+```{r, subset patients we have dose data available for}
+bp_data_all_dose_prior_to_clinic_available <-
+  subset(bp_data_under_twenty, 
+         !is.na(total_daily_salt_prior_to_clinic) &
+           !is.na(total_daily_fludro_prior_to_clinic) &
+           !is.na(total_daily_gluco_prior_to_clinic))
+```
+
+
+
+We want overall histograms of all of our variables
+    
+```{r, plot histograms of each with variable titles and axes and then without titles and axes}
+
+for (name_of_data_frame_to_plot in c(
+  "bp_data_under_twenty")){
+
+  #get the data frame of that name  
+data_frame <- 
+  as.data.frame(get(name_of_data_frame_to_plot))
+  
+#we want to plot each of our imputations
+for (imputation_number in 0:number_of_imputations){
+  
+list_of_variables_to_plot <- 
+  list(
+  "age_to_use",
+  "interpolated_height",
+  "manually_corrected_height",
+  "who_z_height_for_age",
+  "interpolated_weight",
+  "who_z_weight_for_age",
+  "manually_corrected_weight",
+  "fludrocortisone_dose_original",
+  "complete_case_total_daily_fludrocortisone_per_bsa",
+  "total_daily_fludro_prior_to_clinic",
+  "total_daily_gluco_prior_to_clinic",
+  "total_daily_hydrocortisone_equivalent_at_visit_original",
+  "complete_case_total_daily_hydrocortisone_equivalent_per_bsa",
+  "total_daily_salt_prior_to_clinic",
+  "total_daily_fludro_prior_to_clinic_per_current_bsa",
+  "total_daily_gluco_prior_to_clinic_per_current_bsa",
+  "total_daily_salt_dose_with_zero",
+  "complete_case_total_daily_salt_per_bsa",
+  "total_daily_salt_prior_to_clinic_per_current_bsa",
+  paste0("systolic_imputation_", imputation_number),
+  paste0("diastolic_imputation_", imputation_number),
+  paste0("converted_renin_µIU_ml_imputation_", imputation_number),
+  paste0("converted_17OHP_nmol_l_imputation_", imputation_number),
+  paste0("converted_androstenedione_nmol_l_imputation_", imputation_number),
+  paste0("ln_converted_renin_µIU_ml_imputation_", imputation_number),
+  paste0("ln_converted_17OHP_nmol_l_imputation_", imputation_number),
+  paste0("ln_converted_androstenedione_nmol_l_imputation_", imputation_number)
+
+  )
+
+for (variable in list_of_variables_to_plot){
+
+n_of_variable <-
+  sum(!is.na(data_frame[,variable]))
+mean_of_variable <-
+  round(mean(data_frame[,variable], na.rm=T), digits=1)
+sd_of_variable <- 
+  round(sd(data_frame[,variable], na.rm=T), digits=1)
+  
+histogram_with_title <- 
+  ggplot(data_frame, aes_string(x=variable)) +
+  geom_histogram(
+    bins=50, 
+    colour="white",
+    aes(  
+        fill=Sex.at.birth...Birth),
+    alpha=histogram_alpha_fill) +
+  scale_fill_manual(
+    values=c(
+      "Male"="blue",
+      "Female"="red",
+      "Not assigned"="green")) +
+  labs(
+    title=variable,
+    subtitle=paste0(
+      "Mean (SD) n: ",
+      mean_of_variable,
+      " (",
+      sd_of_variable,
+      ")  n = ",
+      n_of_variable
+  )) +
+  themepowerpointtitle
+print(histogram_with_title)
+
+
+
+dir.create("histograms_of_variables")
+dir.create(paste0("histograms_of_variables/", 
+                  name_of_data_frame_to_plot))
+
+dir.create(paste0("histograms_of_variables/", 
+                  name_of_data_frame_to_plot, 
+                  "/with_titles"))
+dir.create(paste0("histograms_of_variables/", 
+                  name_of_data_frame_to_plot, 
+                  "/without_titles"))
+
+dir.create(paste0("histograms_of_variables/", 
+                  name_of_data_frame_to_plot, 
+                  "/with_titles/imputation_number_", 
+                  imputation_number))
+dir.create(paste0("histograms_of_variables/", 
+                  name_of_data_frame_to_plot, 
+                  "/without_titles/imputation_number_", 
+                  imputation_number))
+
+ggsave(file=paste0("histograms_of_variables/", 
+                   name_of_data_frame_to_plot, 
+                   "/with_titles/imputation_number_", 
+                   imputation_number, 
+                   "/", 
+                   variable, 
+                   ".tif"),
+       plot=histogram_with_title, 
+       device="tiff", 
+       width=10, height=5 , 
+       compression = "lzw")
+
+#rerender without_titles
+histogram_without_title <-
+  histogram_with_title +
+  theme(
+    plot.title=element_blank(),
+    plot.subtitle=element_blank(),
+    axis.title=element_blank()
+  )
+print(histogram_without_title)
+ggsave(file=paste0("histograms_of_variables/", 
+                   name_of_data_frame_to_plot, 
+                   "/without_titles/imputation_number_", 
+                   imputation_number, 
+                   "/", 
+                   variable, 
+                   ".tif"),
+       plot=histogram_without_title, 
+       device="tiff", 
+       width=10, height=5 , 
+       compression = "lzw")
+
+}
+
+}
+
+}
+```
+
+```{r, clear variables to prevent unnecessary saves}
+rm(number_of_imputations)
+rm(bp_data_under_twenty)
+```
+
+```{r, end of file so save all the listed dataframes into the parent directory}
+save_bp_files_function(
+  parent_directory=location_of_data_files,
+  parent_file="file_54")
+Sys.time()
+```
+

@@ -1,0 +1,401 @@
+Load packages and reread files using the prebuilt load files function
+
+```{r, load software packages}
+rm(list = ls())
+
+#we first establish the location of the working directory where we keep everything, depending on whether it exists (i.e. which computer we are using)
+#check C drive
+if(file.exists("C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure")){
+location_of_main_folder <-
+  "C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure"
+}
+#take the working directory otherwise, which should work every time?
+if(!exists("location_of_main_folder")){
+  location_of_main_folder <- 
+    getwd()
+}
+#paste the name of our functions folder into the path name
+location_of_functions_folder <-
+  paste0(location_of_main_folder, "/bp_functions_folder/")
+
+#load the function that loads all the libraries and sources
+source(paste0(location_of_functions_folder, "load_bp_libraries_and_sources_function.R"))
+
+#paste together the location of the data files - we don't load in the first file, but we need this location for the end
+location_of_data_files <-
+  paste0(location_of_main_folder, "/bp_data_files_to_load/")
+
+#run the function, pointing it towards the functions folder
+load_bp_libraries_and_sources_function(
+  location_of_functions_folder=location_of_functions_folder,
+  location_of_data_files=location_of_data_files
+)
+
+load_bp_files_function(previous_file_name = "file_12",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list("bp_data"))
+
+str(bp_data$modelling_corrected_dob)
+
+```
+
+```{r}
+freq(bp_data$spurious_manually_corrected_dob_code)
+```
+
+If we have a non spurious date of birth, then we use manually_corrected_dob. This has already been corrected for earliest visit date within the modelling date of birth file.
+
+If we have a spurious date of birth, then we use modelling_corrected_dob
+
+HOWEVER, if we have a spurious date of birth, and we don't have modelling_corrected_dob (because the patient was not in the registry before the last martin extraction in the last platform) then we need a third dob to resort to. This date of birth can just be the mid point between the earliest visit date, and the spurious date of birth
+
+HOWEVER, if the patient's first visit is more than a year after their spurious date of birth, this should be corrected to being half way through the year
+
+********************
+creating midpoint_corrected_dob
+********************
+
+```{r}
+#take the days between the manually corrected dob and the earliest visit date and divide them by 2, making that a round number to facilitate adding to a date
+bp_data$midpoint_corrected_days <-
+  round(as.numeric(difftime(bp_data$earliest_visit_date,  
+                            bp_data$manually_corrected_dob, 
+                            units="days")/ 2 ), digits=0) 
+
+#limit that at six months
+bp_data$midpoint_corrected_days <-
+  ifelse(bp_data$midpoint_corrected_days > 181,
+         181,
+         bp_data$midpoint_corrected_days
+)
+
+#then use lubridate to add those number of days to the date
+bp_data$midpoint_corrected_dob <-
+  (as.Date(bp_data$manually_corrected_dob)) %m+% 
+  days(bp_data$midpoint_corrected_days)
+
+midpoint_dob_corrected_check_frame <- 
+  bp_data[,c(
+    "id",
+    "Centre.Name...Centre",
+    "spurious_original_dob_code",
+    "spurious_manually_corrected_dob_code",
+    "manually_corrected_dob",
+    "earliest_visit_date",
+    "midpoint_corrected_dob",
+    "midpoint_corrected_days")]
+
+#the difference between midpoint_corrected_dob and earliest_visit_date should be the same as midpoint_corrected_days
+midpoint_dob_corrected_check_frame$difference_check <-
+  difftime(midpoint_dob_corrected_check_frame$earliest_visit_date,
+           midpoint_dob_corrected_check_frame$midpoint_corrected_dob, 
+           units="days")
+
+midpoint_dob_corrected_check_frame$difference_in_days <-
+  as.numeric(midpoint_dob_corrected_check_frame$difference_check) -
+             as.numeric(midpoint_dob_corrected_check_frame$midpoint_corrected_days)
+               
+print("rounding days will create slight differences, described here as the days - the mean and median of this should be roughly less than 1:")
+descr(subset(midpoint_dob_corrected_check_frame, midpoint_corrected_days<180)$difference_in_days)
+
+print("this is a description of the number of days typically used to create midpoint_corrected_days, which is the third hierarchy of dates of birth")
+descr(bp_data$midpoint_corrected_days)
+```
+```{r, recreate spurious_manually_corrected_dob_code to account for joining and other adjustments}
+print("before we recreate the column, we have the following frequency that includes NAs due to joining frames since the original creation")
+freq(bp_data$spurious_manually_corrected_dob_code)
+as.data.frame(freq(bp_data$manually_corrected_dob))
+
+#Note the original date of birth and the manually corrected date of birth are now in slightly different formats so need addressing with slightly different code to pull out day, month and year separately
+bp_data$text_manually_corrected_dob <-
+  as.character(bp_data$manually_corrected_dob)
+
+bp_data$day_of_birth <- 
+  as.numeric(gsub(pattern="[0-9][0-9][0-9][0-9]\\-[0-9][0-9]\\-", 
+                  replacement="", 
+                  x=bp_data$text_manually_corrected_dob))
+
+#first we remove year to get the month. Using as.numeric removes any preceding zeros
+bp_data$month_of_birth <- 
+  sub(pattern="[0-9][0-9][0-9][0-9]\\-", 
+      replacement="", 
+      x=bp_data$text_manually_corrected_dob)
+
+#then from that, we remove the days
+bp_data$month_of_birth <- 
+  as.numeric(sub(pattern="\\-[0-9][0-9]", 
+      replacement="", 
+      x=bp_data$month_of_birth))
+
+#for year we remove month and days
+bp_data$year_of_birth <- 
+  as.numeric(gsub(pattern="\\-[0-9][0-9]", 
+                  replacement="", 
+                  x=bp_data$text_manually_corrected_dob))
+
+bp_data$spurious_manually_corrected_dob_code <- 
+  as.integer(ifelse(bp_data$day_of_birth==1 & 
+                    bp_data$month_of_birth==1, 
+                   1, 
+                   0))
+
+print("New percentage with a spurious date of birth:")
+round(subset(rownames_to_column(as.data.frame(freq(bp_data$spurious_manually_corrected_dob_code))), rowname==1)$`% Valid`, digits=1)
+
+as.data.frame(freq(bp_data$spurious_manually_corrected_dob_code))
+
+```
+
+```{r, turn all of our dates into characters before we start using them in ifelse statements within the hierarchy}
+bp_data$manually_corrected_dob <- as.character(bp_data$manually_corrected_dob)
+bp_data$modelling_corrected_dob <- as.character(bp_data$modelling_corrected_dob)
+bp_data$midpoint_corrected_dob <- as.character(bp_data$midpoint_corrected_dob)
+
+str(bp_data$manually_corrected_dob)
+str(bp_data$modelling_corrected_dob)
+str(bp_data$midpoint_corrected_dob)
+```
+
+
+```{r, create dob_to_use by selecting the date of birth to use according to the hierarchy}
+#we have to select these as characters, and then convert pack to posixct later on to prevent them automatically going to UNIX
+#If we have a non spurious date of birth, then we use manually_corrected_dob
+bp_data$dob_to_use <-
+  ifelse(
+    bp_data$spurious_manually_corrected_dob_code==0 ,
+    as.character(bp_data$manually_corrected_dob),
+    NA
+  )
+bp_data$dob_to_use <-
+  ifelse(
+    bp_data$spurious_manually_corrected_dob_code==1 | is.na(bp_data$spurious_manually_corrected_dob_code),
+    NA,
+    bp_data$dob_to_use
+  )
+
+#also give us a dob_method column
+bp_data$dob_method <-
+  ifelse(
+    bp_data$spurious_manually_corrected_dob_code==0,
+    "manually_corrected_dob",
+    NA
+  )
+bp_data$dob_method <-
+  ifelse(
+    bp_data$spurious_manually_corrected_dob_code==1 | is.na(bp_data$spurious_manually_corrected_dob_code),
+    NA,
+    bp_data$dob_method
+  )  
+
+#If we have a spurious date of birth and have a modelling_corrected_dob, then we use modelling_corrected_dob. Similarly if we have a missing manually corrected dob then we will have a missing manually corrected dob code, so we put that in as or
+bp_data$dob_to_use <-
+  ifelse(
+    bp_data$spurious_manually_corrected_dob_code==1 &
+      !is.na(bp_data$modelling_corrected_dob) |
+    is.na(bp_data$spurious_manually_corrected_dob_code) &
+      !is.na(bp_data$modelling_corrected_dob)  ,
+    as.character(bp_data$modelling_corrected_dob),
+    bp_data$dob_to_use
+  )
+
+#also add to our dob_method column
+bp_data$dob_method <-
+  ifelse(
+    bp_data$spurious_manually_corrected_dob_code==1 &
+      !is.na(bp_data$modelling_corrected_dob) |
+    is.na(bp_data$spurious_manually_corrected_dob_code) &
+      !is.na(bp_data$modelling_corrected_dob)  ,
+    "modelling_corrected_dob",
+    bp_data$dob_method
+  )
+
+#If we have a spurious date of birth and dont have a modelling_corrected_dob, then we use midpoint_corrected_dob
+bp_data$dob_to_use <-
+  ifelse(
+    bp_data$spurious_manually_corrected_dob_code==1 &
+      is.na(bp_data$modelling_corrected_dob) |
+    is.na(bp_data$spurious_manually_corrected_dob_code) &
+      is.na(bp_data$modelling_corrected_dob) ,
+    as.character(bp_data$midpoint_corrected_dob),
+    bp_data$dob_to_use)
+#also add to our dob_method column
+bp_data$dob_method <-
+  ifelse(
+    bp_data$spurious_manually_corrected_dob_code==1 &
+      is.na(bp_data$modelling_corrected_dob) |
+    is.na(bp_data$spurious_manually_corrected_dob_code) &
+      is.na(bp_data$modelling_corrected_dob) ,
+    "midpoint_corrected_dob",
+    bp_data$dob_method
+  )
+
+print("number of entries without a dob_to_use - this should be zero:")
+sum(is.na(bp_data$dob_to_use))
+
+print("frequency of our DOB methodology per visit:")
+freq(bp_data$dob_method)
+
+print("frequency of our DOB methodology per id:")
+freq(unique(bp_data[,c("id", "dob_method")])$dob_method)
+
+as.data.frame(bp_data$dob_to_use)
+```
+
+
+```{r, create dob_to_use by selecting the date of birth to use according to the hierarchy}
+print("number without a visit_date")
+sum(is.na(bp_data$visit_date))
+print("number without a dob_to_use")
+sum(is.na(bp_data$dob_to_use))
+
+#then we can convert the dob_to_use to posix
+
+bp_data$dob_to_use <-
+  as.POSIXct(
+    bp_data$dob_to_use,
+  format="%Y-%m-%d")
+
+print("number without a visit_date")
+sum(is.na(bp_data$visit_date))
+print("number without a dob_to_use")
+sum(is.na(bp_data$dob_to_use))
+```
+
+
+```{r, create dob_to_use by selecting the date of birth to use according to the hierarchy}
+str(bp_data$dob_to_use)
+
+
+
+age_data <-
+  bp_data[,c(
+    "id",
+    "dob_method",
+    "dob_to_use",
+    "visit_date",
+    "manually_corrected_dob",
+    "modelling_corrected_dob",
+    "midpoint_corrected_dob",
+    "spurious_original_dob_code",
+    "spurious_manually_corrected_dob_code",
+#    "age_to_use",
+    "Decimal.age.at.visit..calculated.by.formula..YEARFRAC.DOB.DOV..")]
+
+age_data_to_look <-
+  subset(age_data, id==989)
+age_data_to_look <-
+  subset(age_data, id==997)
+
+print("number without a visit_date")
+sum(is.na(bp_data$visit_date))
+print("number without a dob_to_use")
+sum(is.na(bp_data$dob_to_use))
+```
+
+```{r, now check for the dob_to_use being impossible because it is before the earliest visit date}
+dob_to_use_too_late <-
+  subset(bp_data, difftime(dob_to_use, earliest_visit_date, units="days")>0)
+
+print("If there are patients listed here they still have a date of birth that is impossible because it is before the first visit date. However, they need manually checking to see if it is the visit date that is at fault")
+
+unique(dob_to_use_too_late$id)
+
+write.csv(dob_to_use_too_late[,c(
+  "dob_to_use",
+  "id",
+  "visit_date",
+  "dob_method",
+  "earliest_visit_date",
+  "manually_corrected_height",
+  "manually_corrected_weight",
+  "visit_in_base_data",
+  "visit_in_fludro_data",
+  "visit_in_labs_data",
+  "visit_in_meds_data",
+  "visit_in_longitudinal_data")], 
+  "dob_to_use_too_late.csv")
+write.csv(dob_to_use_too_late, "dob_to_use_too_late_full.csv")
+
+print("if this number is more than zero, then you need to manually look at the file 'dob_to_use_too_late.csv' and see which ids and which visit dates might have mistakes in them that are creating inappropriate dates of birth that are impossible because they are AFTER the first visit date. This may be a problem with the date of birth, but is more likely a problem with one of the visit dates. If this number is zero, they are all sorted:")
+
+nrow(dob_to_use_too_late)
+
+```
+
+
+```{r, calculate age_to_use from dob_to_use}
+print("number without a visit_date")
+sum(is.na(bp_data$visit_date))
+print("number without a dob_to_use")
+sum(is.na(bp_data$dob_to_use))
+
+bp_data$age_to_use <-
+  as.numeric(difftime(bp_data$visit_date, 
+           bp_data$dob_to_use, 
+           units="days") / 365.25)
+
+print("Structure of visit date is:")
+str(bp_data$visit_date)
+
+check_frame <- subset( bp_data, is.na(visit_date))
+check_frame$id
+
+print("Structure of dob_to_use is:")
+str(bp_data$dob_to_use)
+
+print("double check ages here - we should have a minimum age that is zero or over. This number must be zero or over:")
+min(bp_data$age_to_use, na.rm=T)
+
+print("the number that don't have a dob_to_use is:")
+sum(is.na(bp_data$dob_to_use))
+
+print("the number that don't have an age_to_use is:")
+sum(is.na(bp_data$age_to_use))
+
+print("this number is likely the same as the number that don't have a visit date, which is:")
+sum(is.na(bp_data$visit_date))
+
+print("missing visit_date is left in the frame for future imputation.")
+print("if the difference between these is greater than zero, then you need to investigate why there is another reason we are missing age_to_use:")
+sum(is.na(bp_data$age_to_use)) - sum(is.na(bp_data$visit_date))
+
+print("general description of ages:")
+descr(bp_data$age_to_use)
+freq(bp_data$dob_method)
+```
+
+```{r, visually check the three dates of birth we have if you need to }
+dob_hierarchy_check_frame <-
+  bp_data[,c("id",
+             "age_to_use",
+             "Centre.Name...Centre",
+             "id_visit_date",
+             "visit_date",
+             "visit_in_base_data",
+             "visit_in_fludro_data",
+             "visit_in_labs_data",
+             "visit_in_meds_data",
+             "visit_in_longitudinal_data",
+             "spurious_original_dob_code",
+             "spurious_manually_corrected_dob_code",
+             "DOB.in.registry..22.4.22.",
+             "manually_corrected_dob",
+             "modelling_corrected_dob",
+             "midpoint_corrected_dob",
+             "earliest_visit_date")]
+```
+
+```{r}
+check_frame <- subset(bp_data, is.na(age_to_use))
+
+check_frame$id
+```
+
+
+```{r, end of file so save all the listed dataframes into the parent directory}
+save_bp_files_function(
+  parent_directory=location_of_data_files,
+  parent_file="file_13")
+
+Sys.time()
+```

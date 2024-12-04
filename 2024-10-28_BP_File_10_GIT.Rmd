@@ -1,0 +1,801 @@
+
+Load packages and reread files using the prebuilt load files function
+
+```{r, load software packages}
+rm(list = ls())
+
+#we first establish the location of the working directory where we keep everything, depending on whether it exists (i.e. which computer we are using)
+#check C drive
+if(file.exists("C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure")){
+location_of_main_folder <-
+  "C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure"
+}
+#take the working directory otherwise, which should work every time?
+if(!exists("location_of_main_folder")){
+  location_of_main_folder <- 
+    getwd()
+}
+#paste the name of our functions folder into the path name
+location_of_functions_folder <-
+  paste0(location_of_main_folder, "/bp_functions_folder/")
+
+#load the function that loads all the libraries and sources
+source(paste0(location_of_functions_folder, "load_bp_libraries_and_sources_function.R"))
+
+#paste together the location of the data files - we don't load in the first file, but we need this location for the end
+location_of_data_files <-
+  paste0(location_of_main_folder, "/bp_data_files_to_load/")
+
+#run the function, pointing it towards the functions folder
+load_bp_libraries_and_sources_function(
+  location_of_functions_folder=location_of_functions_folder,
+  location_of_data_files=location_of_data_files
+)
+
+load_bp_files_function(previous_file_name = "file_3",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list("bp_participants_longitudinal_data",
+                                   "bp_participants_base_data"))
+
+load_bp_files_function(previous_file_name = "file_7", 
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list("bp_labs_wide"))
+
+load_bp_files_function(previous_file_name = "file_8",  
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list("bp_meds_wide",
+                                   "prednisolone_to_hydrocortisone_conversion",
+                                   "dexamethasone_to_hydrocortisone_conversion",
+                                   "cortisone_acetate_to_hydrocortisone_conversion",
+                                   "methylprednisolone_to_hydrocortisone_conversion"))
+
+load_bp_files_function(previous_file_name = "file_9",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list("bp_fludro_wide"))
+```
+
+we have bp_participants_base_data_unique
+we have bp_participants_longitudinal_data
+we have bp_labs_wide 
+we have bp_meds_wide
+we have bp_fludro_wide
+
+all need joining together
+
+```{r, make all the id_visit_dates into characters before joining}
+bp_meds_wide$id_visit_date <- 
+  as.character(bp_meds_wide$id_visit_date)
+
+bp_fludro_wide$id_visit_date <- 
+  as.character(bp_fludro_wide$id_visit_date)
+
+bp_participants_longitudinal_data$id_visit_date <- 
+  as.character(bp_participants_longitudinal_data$id_visit_date)
+
+bp_labs_wide$id_visit_date <- 
+  as.character(bp_labs_wide$id_visit_date)
+```
+
+so now we can join the frames to create bp_data 
+
+```{r, join bp_participants_longitudinal_data with bp_labs_wide}
+#full join in bp_labs_wide to longitudinal data
+a <- full_join(bp_participants_longitudinal_data, 
+               bp_labs_wide, 
+               by="id_visit_date")
+
+check_frame_a <- 
+  as.data.frame(freq(a$id_visit_date))
+
+print("number without an id in the joined frame, which is the number with a bp_labs_wide visit but not a bp_participants_longitudinal_visit")
+sum(is.na(a$id))
+
+#create id again to find out what rows werent in the longitudinal data
+a$id <- 
+  gsub(x=a$id_visit_date, 
+       pattern="_.*", 
+       replacement="")
+
+print("check everyone now has an ID - this number should be zero:")
+
+sum(is.na(a$id))
+```
+
+```{r, join bp_participants_longitudinal_data and bp_labs_wide with bp_meds_wide}
+#full join in bp_meds_wide
+b <- full_join(a, 
+               bp_meds_wide, 
+               by="id_visit_date")
+
+d <- subset(a , grepl(x=id_visit_date, pattern="2933"))
+d$id_visit_date
+
+f <- subset(bp_meds_wide , grepl(x=id_visit_date, pattern="2933"))
+f$id_visit_date
+
+print("this is the joined frame:")
+e <- subset(b , grepl(x=id_visit_date, pattern="2933"))
+e$id_visit_date
+
+check_frame_b <- 
+  as.data.frame(freq(b$id_visit_date))
+
+print("number without an id in the joined frame, which is the number with a bp_meds_wide visit but not a bp_participants_longitudinal_visit or labs_wide visit")
+sum(is.na(b$id))
+
+#create id again to find out what rows werent in the meds_wide data
+b$id <- 
+  gsub(x=b$id_visit_date, pattern="_.*", replacement="")
+print("check everyone now has an ID - this number should be zero:")
+sum(is.na(b$id))
+```
+
+```{r, join bp_participants_longitudinal_data and bp_labs_wide and bp_meds_wide with bp_fludro_wide}
+#full join in fludro_wide
+c <- full_join(b, 
+               bp_fludro_wide, 
+               by="id_visit_date")
+
+print("number without an id in the joined frame, which is the number with a fludro_wide visit but not a bp_participants_longitudinal_visit, bp_meds_wide or bp_labs_wide visit")
+
+sum(is.na(c$id))
+
+#create id again to find out what rows werent in the previous data
+c$id <- 
+  as.integer(gsub(x=c$id_visit_date, pattern="_.*", replacement=""))
+print("check everyone now has an ID - this number should be zero:")
+
+sum(is.na(c$id))
+
+check_frame_c <- 
+  as.data.frame(freq(c$id_visit_date))
+
+print("number without an id in the joined frame, which is the number with a bp_fludro_wide visit but not a bp_participants_longitudinal_visit, bp_meds_wide or bp_labs_wide visit")
+sum(is.na(c$id))
+```
+
+```{r, join bp_participants_longitudinal_data and bp_labs_wide and bp_meds_wide and bp_fludro_wide with bp_base_data}
+#left join in bp_participants_base_data so all visits have the dates of birth etc
+bp_data <- 
+  left_join(c, 
+            bp_participants_base_data, 
+            by="id")
+check_frame_bp_data <- 
+  as.data.frame(freq(c$id_visit_date))
+
+#we can now finally recreate id and recreate visit_date in our finally joined frame
+bp_data$id <- 
+  as.integer(gsub(x=bp_data$id_visit_date, pattern="_.*", replacement=""))
+
+bp_data$visit_date <- 
+  as.POSIXct(gsub(x=bp_data$id_visit_date, pattern=".*_", replacement=""), format="%Y-%m-%d")
+
+print("Maximum number of rows per id_visit_date minus 1 (should be 0):")
+as.numeric(max(
+  subset(
+    rownames_to_column(
+      as.data.frame(
+        freq(
+          bp_data$id_visit_date))), 
+    rowname !="Total" & rowname !="<NA>")$Freq)) - 1
+
+#we now want to order the bp_data frame, by id_visit_date
+bp_data <- 
+  bp_data[order(bp_data$id,
+                bp_data$visit_date),] 
+```
+
+```{r, correction for those not contained in the longitudinal or base data}
+bp_data_visits_removed_for_no_base_data <-
+  subset(bp_data, is.na(visit_in_base_data))
+
+bp_data_patients_removed_for_no_base_data <-
+  unique(bp_data_visits_removed_for_no_base_data$id)
+
+print("this is where we have removed all patients without 21OH deficiency diagnosis from the overall frame. Number of rows removed is:")
+number_of_rows_before_removal <- 
+  nrow(bp_data)
+
+bp_data <-
+  subset(bp_data, !is.na(visit_in_base_data))
+
+number_of_rows_before_removal - nrow(bp_data)
+
+print("Frequencies remaining of those in longitudinal data, having removed anyone who doesn't have base data:")
+
+freq(bp_data$visit_in_longitudinal_data)
+
+print("The number of visits without longitudinal measurements, but does have other measurements are as follows:")
+
+print(sum(is.na(bp_data$visit_in_longitudinal_data)))
+
+write.csv(bp_data, "bp_data_after_original_join.csv", row.names=F)
+```
+
+```{r, check missing data}
+print("number of missing id - this should be zero")
+sum(is.na(bp_data$id))
+
+print("number of missing id_visit_date - this should be zero")
+sum(is.na(bp_data$id_visit_date))
+
+print("number of missing visit_date - this should be zero")
+sum(is.na(bp_data$visit_date))
+
+frequency_of_id_visit_date_frame <- 
+  as.data.frame(freq(bp_data$id_visit_date))
+
+bp_data_with_no_visit_date <- 
+  subset(bp_data, is.na(visit_date))
+```
+
+```{r, recreate id and visit_date from id_visit_date, as well as creating visit_date_unix}
+print("we need to recreate this for visits that came from a fludro frame or a meds frame or a labs frame without longitudinal data allied to them")
+
+bp_data$id <- 
+  as.integer(gsub(x=bp_data$id_visit_date, 
+       pattern="_.*", 
+       replacement=""))
+
+bp_data$visit_date <- 
+  as.POSIXct(gsub(x=bp_data$id_visit_date, 
+       pattern=".*_", 
+       replacement=""), 
+       format="%Y-%m-%d")
+
+bp_data$visit_date_unix <- 
+  as.numeric(bp_data$visit_date)
+
+print("number of missing id")
+sum(is.na(bp_data$id))
+
+print("number of missing id_visit_date")
+sum(is.na(bp_data$id_visit_date))
+
+print("number of missing visit_date")
+sum(is.na(bp_data$id_visit_date))
+
+print("Total number of visits in data set:")
+nrow(bp_data)
+```
+
+```{r, create original columns to compare to at the end of adjustments made after liaison with centres}
+bp_data$Glucocorticoids...Current.Medication_original <- 
+  bp_data$Glucocorticoids...Current.Medication
+
+bp_data$Glucocorticoids.note...Current.Medication_original <- 
+  bp_data$Glucocorticoids.note...Current.Medication
+
+bp_data$Fludrocortisone...Current.Medication_original <- 
+  bp_data$Fludrocortisone...Current.Medication
+
+bp_data$Fludrocortisone.frequency...Current.Medication_original <-
+  bp_data$Fludrocortisone.frequency...Current.Medication
+
+bp_data$medicine_1_original <- 
+  bp_data$medicine_1
+
+bp_data$GC_dose_1_original <- 
+  bp_data$GC_dose_1 
+
+bp_data$meds_unit_1_original <- 
+  bp_data$meds_unit_1
+
+bp_data$meds_time_1_original <- 
+  bp_data$meds_time_1
+
+bp_data$meds_clock_time_1_original <- 
+  bp_data$meds_clock_time_1
+
+bp_data$medicine_2_original <- 
+  bp_data$medicine_2
+
+bp_data$GC_dose_2_original <- 
+  bp_data$GC_dose_2
+
+bp_data$meds_unit_2_original <- 
+  bp_data$meds_unit_2
+
+bp_data$meds_time_2_original <- 
+  bp_data$meds_time_2
+
+bp_data$meds_clock_time_2_original <- 
+  bp_data$meds_clock_time_2
+
+bp_data$medicine_3_original <- 
+  bp_data$medicine_3
+
+bp_data$GC_dose_3_original <- 
+  bp_data$GC_dose_3
+
+bp_data$meds_unit_3_original <- 
+  bp_data$meds_unit_3
+
+bp_data$meds_time_3_original <- 
+  bp_data$meds_time_3
+
+bp_data$meds_clock_time_3_original <- 
+  bp_data$meds_clock_time_3
+
+bp_data$different_GC_used_on_same_day_original <- 
+  bp_data$different_GC_used_on_same_day
+
+bp_data$absolute_daily_GC_dose_sum_original <- 
+  bp_data$absolute_daily_GC_dose_sum 
+
+bp_data$daily_preparation_of_GC_to_use_original <- 
+  bp_data$daily_preparation_of_GC_to_use
+
+bp_data$absolute_total_daily_hydrocortisone_at_visit_original <-
+  bp_data$absolute_total_daily_hydrocortisone_at_visit
+
+bp_data$absolute_total_daily_prednisolone_at_visit_original <-
+  bp_data$absolute_total_daily_prednisolone_at_visit
+
+bp_data$absolute_total_daily_prednisone_at_visit_original <- 
+  bp_data$absolute_total_daily_prednisone_at_visit
+
+bp_data$absolute_total_daily_dexamethasone_at_visit_original <-
+  bp_data$absolute_total_daily_dexamethasone_at_visit
+
+bp_data$absolute_total_daily_other_GC_at_visit_original <- 
+  bp_data$absolute_total_daily_other_GC_at_visit
+
+bp_data$total_daily_hydrocortisone_equivalent_at_visit_original <-
+  bp_data$total_daily_hydrocortisone_equivalent_at_visit
+
+bp_data$fludrocortisone_dose_original <- 
+  bp_data$fludrocortisone_dose
+
+bp_data$total_daily_fludro_dose_original <- 
+  bp_data$total_daily_fludro_dose
+```
+
+```{r, blanket correction of Glucocorticoids...Current.Medication if we have dose data}
+#if we know that the preparation of glucocorticoids, then the patient was definitely taking them as long as it isn't recorded as 'none'. This will change all rows that have a preparation, even if we don't know the amount. If we know the amount without the preparation, then we will have to wait for the manual review which happens below
+bp_data$Glucocorticoids...Current.Medication <-
+  ifelse(!is.na(bp_data$daily_preparation_of_GC_to_use) &
+           bp_data$daily_preparation_of_GC_to_use!="none",
+         "Yes",
+         bp_data$Glucocorticoids...Current.Medication)
+```
+
+```{r, manually assess Glucocorticoids.note...Current.Medication now that we have joined the longitudinal frame to the medication frame as this will contain information about things like cortesone acetate or dosing information that was missing from the medication frame}
+
+manual_review_of_glucocorticoid_notes <-
+  bp_data[,c(
+    "id",
+    "id_visit_date",
+    "Decimal.age.at.visit..calculated.by.formula..YEARFRAC.DOB.DOV..",
+    "Glucocorticoids...Current.Medication",
+    "Glucocorticoids.note...Current.Medication",
+    "absolute_daily_GC_dose_sum",
+    "daily_preparation_of_GC_to_use",
+    "total_daily_hydrocortisone_equivalent_at_visit",
+    "Daily.adherence.to.therapy...Current.Medication",
+    "Has.treatment.changed.since.last.visit...Current.Medication",
+    "Why.was.treatment.changed...Current.Medication",
+    "medicine_1",
+    "GC_dose_1",
+    "meds_unit_1")]
+    
+manual_review_of_glucocorticoid_notes_with_a_note <- 
+  subset(manual_review_of_glucocorticoid_notes, !is.na(Glucocorticoids.note...Current.Medication))
+
+#take out every visit from patients with a note
+manual_review_of_glucocorticoid_notes <-
+  subset(manual_review_of_glucocorticoid_notes, 
+         id %in% manual_review_of_glucocorticoid_notes_with_a_note$id)
+
+write.csv(
+  manual_review_of_glucocorticoid_notes, 
+  "manual_review_of_glucocorticoid_notes.csv", 
+  row.names = F)
+
+freq(bp_data$daily_preparation_of_GC_to_use)
+```
+
+```{r, calculate number after joining everything for comparison later}
+number_of_rows_before_join <- 
+  nrow(bp_data)
+```
+
+Now that we have all of the visits included in all four frames, we can calculate our earliest and oldest visits and join them into the bp_data frame
+
+```{r, attach youngest visit date and oldest visit date to each row of a patient}
+youngest_visits <- 
+  bp_data %>% 
+  group_by(id) %>% 
+  slice_min(visit_date, 
+            with_ties = F)
+
+print("total number of participants in bp_data youngest visit frame")
+
+nrow(youngest_visits)
+
+youngest_visits_to_join <- 
+  youngest_visits[,c("id", 
+                     "visit_date")]
+
+names(
+  youngest_visits_to_join)[
+    names(youngest_visits_to_join)=="visit_date"] <- 
+  "earliest_visit_date"
+
+oldest_visits <- 
+  bp_data %>% 
+  group_by(id) %>% 
+  slice_max(visit_date, with_ties = F)
+
+oldest_visits_to_join <- 
+  oldest_visits[,c("id", 
+                   "visit_date")]
+
+names(oldest_visits_to_join)[names(oldest_visits_to_join)=="visit_date"] <- 
+  "oldest_visit_date"
+
+total_number_of_visits_to_join <- 
+  oldest_visits[,c("id", "visit_date")]
+
+names(oldest_visits_to_join)[names(oldest_visits_to_join)=="visit_date"] <- 
+  "oldest_visit_date"
+
+print("total number of participants in bp_data oldest visit frame")
+
+nrow(oldest_visits)
+```
+
+we want the patient years that the patient had data entered into the registry. We also want the patient years that patients had data entered into the registry up until age 20
+
+```{r, create oldest_visits_before_20}
+oldest_visits_before_20 <- 
+  subset(bp_data, Decimal.age.at.visit..calculated.by.formula..YEARFRAC.DOB.DOV..<20) %>%
+  group_by(id) %>% 
+  slice_max(visit_date, 
+            with_ties = F)
+
+oldest_visits_before_20_to_join <- 
+  oldest_visits_before_20[,c("id", 
+                             "visit_date")]
+
+
+names(oldest_visits_before_20_to_join)[names(oldest_visits_before_20_to_join)=="visit_date"] <-
+  "oldest_visit_date_before_20"
+```
+
+```{r, add oldest and youngest visits back to bp_data frame}
+bp_data_with_youngest_oldest <- 
+  dplyr::left_join(bp_data, 
+                   youngest_visits_to_join, 
+                   by="id")
+
+bp_data_with_youngest_oldest <- 
+  dplyr::left_join(bp_data_with_youngest_oldest, 
+                   oldest_visits_to_join, 
+                   by="id")
+
+bp_data_with_youngest_oldest <- 
+  dplyr::left_join(bp_data_with_youngest_oldest, 
+                   oldest_visits_before_20_to_join, 
+                   by="id")
+#rationalise the file name
+bp_data <- 
+  bp_data_with_youngest_oldest
+```
+
+Now we calculate the total_years_of_data_for_id
+
+```{r, calculate years of data in the registry for each patient}
+bp_data$total_years_of_data_for_id <- 
+  as.numeric(bp_data$oldest_visit_date - 
+               bp_data$earliest_visit_date) / 60 / 60 / 24 / 365.25
+
+bp_data$total_years_of_data_before_20_for_id <- 
+  as.numeric(bp_data$oldest_visit_date_before_20 - 
+               bp_data$earliest_visit_date) / 60 / 60 / 24 / 365.25
+
+print("description of years of follow up in patients under 20 years of age")
+
+descr(bp_data$total_years_of_data_before_20_for_id)
+```
+
+just take out one visit per patient in order to describe the number of years follow up
+
+```{r, describe number of years follow up into text file}
+dir.create("ICAH BP text file outputs")
+
+sink("./ICAH BP text file outputs/descriptions_of_number_of_years_of_follow_up.txt")
+
+recent_visits <- 
+  bp_data %>% 
+  group_by(id) %>% 
+  slice_max(Decimal.age.at.visit..calculated.by.formula..YEARFRAC.DOB.DOV.., n=1, with_ties=F)
+
+recent_visits_before_20 <- 
+  subset(recent_visits, 
+         Decimal.age.at.visit..calculated.by.formula..YEARFRAC.DOB.DOV..<20)
+
+descr(recent_visits_before_20$total_years_of_data_before_20_for_id)
+
+freq_centres <- 
+  subset(rownames_to_column(as.data.frame(freq(recent_visits_before_20$Centre.Name...Centre))), 
+         rowname!= "Total" & rowname!="<NA>")
+
+print("Description of number of patients per centre under 20 years old")
+
+descr(freq_centres$Freq)
+
+recent_visits_before_20_male <- 
+  subset(recent_visits_before_20, 
+         sex_1_for_M_2_for_F==1)
+
+freq_centres_male <- 
+  subset(rownames_to_column(as.data.frame(freq(recent_visits_before_20_male$Centre.Name...Centre))), 
+         rowname!= "Total" & 
+           rowname!="<NA>")
+
+print("Description of number of male patients per centre under 20 years old")
+
+descr(freq_centres_male$Freq)
+
+recent_visits_before_20_female <- 
+  subset(recent_visits_before_20, 
+         sex_1_for_M_2_for_F==2)
+
+freq_centres_female <- 
+  subset(rownames_to_column(as.data.frame(freq(recent_visits_before_20_female$Centre.Name...Centre))),
+         rowname!= "Total" & 
+           rowname!="<NA>")
+
+print("Description of number of female patients per centre under 20 years old")
+
+descr(freq_centres_female$Freq)
+
+sink()
+```
+
+```{r, check joining earliest and recent visit dates hasnt duplicated rows}
+print("number of rows in bp_data frame before earliest and oldest visit calculations and join:")
+number_of_rows_before_join
+
+print("number of rows in bp_data frame after earliest and oldest visit calculations and join:")
+nrow(bp_data)
+```
+
+```{r, rationalise columns in data, this will stop the file becoming too large}
+#we now know we have all the data in one frame, but to make it manageable, we now need to rationalise our columns
+
+sink("colnames_before_removal.txt")
+
+colnames(bp_data)
+
+sink()
+
+#we have created other variables for these
+
+bp_data$Date...CAH.Longitudinal.Data <- NULL 
+
+bp_data$Weight..kg....CAH.Longitudinal.Data <- NULL 
+
+bp_data$Height..cm....CAH.Longitudinal.Data <- NULL 
+
+bp_data$Register.ID...Record <- NULL 
+
+freq(bp_data$Date.of.birth...Birth)
+bp_data$Date.of.birth...Birth <- NULL 
+
+#the following fields are not helpful
+
+freq(bp_data$Waist.circumference..cm....CAH.Longitudinal.Data)
+bp_data$Waist.circumference..cm....CAH.Longitudinal.Data <- NULL 
+
+freq(bp_data$Hip.circumference..cm....CAH.Longitudinal.Data)
+bp_data$Hip.circumference..cm....CAH.Longitudinal.Data <- NULL 
+
+freq(bp_data$Number.of.pregnancies.in.the.past...Puberty.Female)
+bp_data$Number.of.pregnancies.in.the.past...Puberty.Female <- NULL 
+
+freq(bp_data$Number.of.live.births...Puberty.Female)
+bp_data$Number.of.live.births...Puberty.Female <- NULL 
+
+freq(bp_data$Birth.head.circumference..cm....Birth)
+bp_data$Birth.head.circumference..cm....Birth <- NULL 
+
+freq(bp_data$Data.can.be.shared.for.research.purposes...Consent)
+bp_data$Data.can.be.shared.for.research.purposes...Consent <- NULL 
+
+freq(bp_data$Current.gender...Details.of.Condition)
+bp_data$Current.gender...Details.of.Condition <- NULL 
+
+freq(bp_data$Karyotype...Details.of.Condition)
+bp_data$Karyotype...Details.of.Condition <- NULL 
+
+freq(bp_data$Disorder.type...Details.of.Condition)
+bp_data$Disorder.type...Details.of.Condition <- NULL 
+
+freq(bp_data$Actual.diagnosis...Details.of.Condition)
+bp_data$Actual.diagnosis...Details.of.Condition <- NULL 
+
+freq(bp_data$Specify.the.actual.diagnosis...Details.of.Condition)
+bp_data$Specify.the.actual.diagnosis...Details.of.Condition <- NULL 
+
+freq(bp_data$Date.of.condition.onset...Details.of.Condition)
+bp_data$Date.of.condition.onset...Details.of.Condition <- NULL 
+
+freq(bp_data$Diagnostic.biochemistry...Details.of.Condition)
+bp_data$Diagnostic.biochemistry...Details.of.Condition <- NULL 
+
+unique(bp_data$Diagnostic.biochemistry.additional.details...Details.of.Condition)
+bp_data$Diagnostic.biochemistry.additional.details...Details.of.Condition <- NULL 
+
+freq(bp_data$Diagnostic.genetics...Details.of.Condition)
+bp_data$Diagnostic.genetics...Details.of.Condition <- NULL 
+
+unique(bp_data$Diagnostic.genetics.additional.details...Details.of.Condition)
+bp_data$Diagnostic.genetics.additional.details...Details.of.Condition <- NULL
+
+freq(bp_data$Participation.in.Other.Registries...Details.of.Condition)
+bp_data$Participation.in.Other.Registries...Details.of.Condition <- NULL 
+
+freq(bp_data$Details.of.Registry.and.ID...Details.of.Condition)
+bp_data$Details.of.Registry.and.ID...Details.of.Condition <- NULL 
+
+freq(bp_data$History.of.similar.condition...Family)
+bp_data$History.of.similar.condition...Family <- NULL 
+
+freq(bp_data$Date.of.death...Death)
+bp_data$Date.of.death...Death <- NULL 
+
+freq(bp_data$Section...Death)
+bp_data$Section...Death <- NULL 
+
+freq(bp_data$Cause.of.death...Death)
+bp_data$Cause.of.death...Death <- NULL 
+
+freq(bp_data$Record...CAH.First.Presentation)
+bp_data$Record...CAH.First.Presentation <- NULL 
+
+freq(bp_data$Prenatal.diagnosis...CAH.First.Presentation)
+bp_data$Prenatal.diagnosis...CAH.First.Presentation <- NULL 
+
+unique(bp_data$Additional.details...CAH.First.Presentation)
+bp_data$Additional.details...CAH.First.Presentation <- NULL 
+
+freq(bp_data$Salt.wasting.crisis.at.presentation...CAH.First.Presentation)
+bp_data$Salt.wasting.crisis.at.presentation...CAH.First.Presentation <- NULL 
+
+freq(bp_data$Adrenal.crisis.at.first.presentation...CAH.First.Presentation)
+bp_data$Adrenal.crisis.at.first.presentation...CAH.First.Presentation <- NULL 
+
+#the following fields are not directly of use
+freq(bp_data$Cushingoid...CAH.Longitudinal.Data)
+bp_data$Cushingoid...CAH.Longitudinal.Data <- NULL 
+
+freq(bp_data$Virilisation...CAH.Longitudinal.Data)
+bp_data$Virilisation...CAH.Longitudinal.Data <- NULL 
+
+freq(bp_data$Anaemia...Comorbid.Conditions.and.Surgery)
+bp_data$Anaemia...Comorbid.Conditions.and.Surgery <- NULL 
+
+freq(bp_data$Anaemia.note...Comorbid.Conditions.and.Surgery)
+bp_data$Anaemia.note...Comorbid.Conditions.and.Surgery <- NULL 
+
+freq(bp_data$Depression...Comorbid.Conditions.and.Surgery)
+bp_data$Depression...Comorbid.Conditions.and.Surgery <- NULL 
+
+freq(bp_data$Depression.note...Comorbid.Conditions.and.Surgery)
+bp_data$Depression.note...Comorbid.Conditions.and.Surgery <- NULL 
+
+freq(bp_data$Anxiety...Comorbid.Conditions.and.Surgery)
+bp_data$Anxiety...Comorbid.Conditions.and.Surgery <- NULL 
+
+freq(bp_data$Anxiety.note...Comorbid.Conditions.and.Surgery)
+bp_data$Anxiety.note...Comorbid.Conditions.and.Surgery <- NULL 
+
+freq(bp_data$Psychosis...Comorbid.Conditions.and.Surgery)
+bp_data$Psychosis...Comorbid.Conditions.and.Surgery <- NULL 
+
+freq(bp_data$Psychosis.note...Comorbid.Conditions.and.Surgery)
+bp_data$Psychosis.note...Comorbid.Conditions.and.Surgery <- NULL 
+
+freq(bp_data$Other.mental.health.problems...Comorbid.Conditions.and.Surgery)
+bp_data$Other.mental.health.problems...Comorbid.Conditions.and.Surgery <- NULL 
+
+freq(bp_data$Other.mental.health.problems.note...Comorbid.Conditions.and.Surgery)
+bp_data$Other.mental.health.problems.note...Comorbid.Conditions.and.Surgery <- NULL 
+
+freq(bp_data$Joint.hypermobility...Comorbid.Conditions.and.Surgery)
+bp_data$Joint.hypermobility...Comorbid.Conditions.and.Surgery <- NULL 
+
+freq(bp_data$Joint.hypermobility.note...Comorbid.Conditions.and.Surgery)
+bp_data$Joint.hypermobility.note...Comorbid.Conditions.and.Surgery <- NULL 
+
+freq(bp_data$Other...Comorbid.Conditions.and.Surgery)
+bp_data$Other...Comorbid.Conditions.and.Surgery <- NULL 
+
+unique(bp_data$Other.note...Comorbid.Conditions.and.Surgery)
+bp_data$Other.note...Comorbid.Conditions.and.Surgery <- NULL 
+
+freq(bp_data$Antidiabetic...Current.Medication)
+bp_data$Antidiabetic...Current.Medication <- NULL 
+
+freq(bp_data$Antidiabetic.note...Current.Medication)
+bp_data$Antidiabetic.note...Current.Medication <- NULL 
+
+freq(bp_data$Antidepressants...Current.Medication)
+bp_data$Antidepressants...Current.Medication <- NULL 
+
+unique(bp_data$Antidepressants.note...Current.Medication)
+bp_data$Antidepressants.note...Current.Medication <- NULL 
+
+freq(bp_data$Other.drugs...Current.Medication)
+bp_data$Other.drugs...Current.Medication <- NULL 
+
+unique(bp_data$Other.drugs.note...Current.Medication)
+bp_data$Other.drugs.note...Current.Medication <- NULL 
+
+freq(bp_data$Patient.follow.up.status...Record)
+bp_data$Patient.follow.up.status...Record <- NULL 
+
+freq(bp_data$First.contact.with.centre...Record)
+bp_data$First.contact.with.centre...Record <- NULL 
+
+freq(bp_data$Country.at.birth...Birth)
+bp_data$Country.at.birth...Birth <- NULL 
+
+freq(bp_data$Mid.Parental.Height)
+bp_data$Mid.Parental.Height <- NULL 
+
+sink("colnames_after_removal.txt")
+colnames(bp_data)
+sink()
+
+```
+
+```{r, take this file as opportunity to rationalised files being saved}
+rm(bp_participants)
+
+rm(bp_participants_base_data)
+
+rm(bp_participants_longitudinal_data)
+
+rm(bp_labs_wide)
+
+rm(bp_meds_wide)
+
+rm(bp_fludro_wide)
+
+rm(bp_participants_longitudinal_data)
+
+rm(prednisolone_to_hydrocortisone_conversion)
+
+rm(dexamethasone_to_hydrocortisone_conversion)
+
+rm(cortisone_acetate_to_hydrocortisone_conversion)
+
+rm(methylprednisolone_to_hydrocortisone_conversion)
+```
+
+```{r}
+print("This should be zero, to show that everyone stated as not taking glucocorticoids have a total daily dose of zero. If this is not the case, you need to manually review the frame manual_review_of_patients_reported_not_taking_glucocorticoids to look for those with a No in that column and add them to the manual list of id_visit_date that alters the dose to zero")
+
+not_on_GC_check <-
+  subset(bp_data, Glucocorticoids...Current.Medication=="No" &
+         total_daily_hydrocortisone_equivalent_at_visit!=0 |
+         Glucocorticoids...Current.Medication=="No" &
+         is.na(total_daily_hydrocortisone_equivalent_at_visit))
+
+nrow(not_on_GC_check)
+
+print("Any id_visit_dates that need manual review due to descrepancy in glucocorticoid treatment are as follows:")
+
+not_on_GC_check$id_visit_date
+```
+
+```{r, end of file so save all the listed dataframes into the parent directory}
+save_bp_files_function(
+  parent_directory=location_of_data_files,
+  parent_file="file_10")
+
+Sys.time()
+```

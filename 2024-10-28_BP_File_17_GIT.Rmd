@@ -1,0 +1,137 @@
+Load packages and reread files using the prebuilt load files function
+
+```{r, load software packages}
+rm(list = ls())
+
+#we first establish the location of the working directory where we keep everything, depending on whether it exists (i.e. which computer we are using)
+#check C drive
+if(file.exists("C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure")){
+location_of_main_folder <-
+  "C:/Users/User/Documents/NRL_R_work/iCAH_Blood_pressure"
+}
+#take the working directory otherwise, which should work every time?
+if(!exists("location_of_main_folder")){
+  location_of_main_folder <- 
+    getwd()
+}
+#paste the name of our functions folder into the path name
+location_of_functions_folder <-
+  paste0(location_of_main_folder, "/bp_functions_folder/")
+
+#load the function that loads all the libraries and sources
+source(paste0(location_of_functions_folder, "load_bp_libraries_and_sources_function.R"))
+
+#paste together the location of the data files - we don't load in the first file, but we need this location for the end
+location_of_data_files <-
+  paste0(location_of_main_folder, "/bp_data_files_to_load/")
+
+#run the function, pointing it towards the functions folder
+load_bp_libraries_and_sources_function(
+  location_of_functions_folder=location_of_functions_folder,
+  location_of_data_files=location_of_data_files
+)
+
+load_bp_files_function(previous_file_name = "file_15",
+  parent_directory = location_of_data_files,
+  list_of_data_frames_to_load=list("bp_data"))
+
+```
+
+```{r, saving a version of height and weight before outlier detection and removal}
+#in this frame we fit gam / spline / linear models to interpolate height and weight. When doing so, we use the residuals to flag and adjust outliers. Before we adjust anything, we pull out the variables as they stand before outlier detection
+bp_data$manually_corrected_height_before_outlier_corrections <-
+  bp_data$manually_corrected_height
+bp_data$manually_corrected_weight_before_outlier_corrections <-
+  bp_data$manually_corrected_weight
+```
+
+correcting for gestational age
+
+```{r, turning gestational age into a number and correcting for gestational age}
+bp_data$gestational_age_number <- 
+  as.numeric(gsub(pattern=" weeks", replacement="", x=bp_data$Gestational.Age..weeks....Birth ))
+
+#calculate degree of prematurity
+bp_data$weeks_before_37_gestation <-
+  ifelse((37 - bp_data$gestational_age_number) > 0,
+         37 - bp_data$gestational_age_number,
+         0)
+freq(bp_data$weeks_before_37_gestation)
+
+#if we have a gestational age, we then adjust the age
+bp_data$corrected_gestational_age <-
+  ifelse(!is.na(bp_data$gestational_age_number),
+    bp_data$age_to_use - bp_data$weeks_before_37_gestation/52,
+    bp_data$age_to_use)
+
+review <- bp_data[,c(
+  "age_to_use",
+  "corrected_gestational_age",
+  "gestational_age_number"
+)]
+```
+
+**********************************
+plot the blood pressure in the registry
+**********************************
+
+```{r, plot systolic blood pressure on base_age_before_joining}
+absoluteplot <- 
+  ggplot(data=bp_data, 
+         aes(x=age_to_use, 
+             y=Systolic..mmHg....CAH.Longitudinal.Data)) + 
+  geom_point(aes(colour=spurious_manually_corrected_dob_code), alpha=0.1) +
+  geom_smooth() + 
+  themepowerpoint
+
+absoluteplot
+```
+
+****************************
+date_of_birth within labs and meds
+*************************
+
+now we have the bp_data frame, we want to check we have appropriate ages for the visits still
+
+```{r, check of ages}
+#here you can assess what you're currently dealing with. creating a and b show that we do not have an age if we don't have a confident date of birth, or we don't have a visit_date_unix, which makes sense. Check those two frames to see if that applies
+age_check_frame <- 
+  bp_data[,c(
+    "id", 
+    "dob_to_use", 
+    "visit_date_unix", 
+    "manually_corrected_longitudinal_date", 
+    "age_to_use")]
+
+age_check_frame <- 
+  subset(age_check_frame, is.na(age_to_use))
+
+descr(bp_data$age_to_use)
+
+descr(bp_data$corrected_gestational_age)
+
+age_check_frame_again <- bp_data[,c(
+  "id_visit_date",
+  "visit_date_unix", 
+  "age_to_use", 
+  "dob_to_use")]
+```
+
+```{r, let's establish how much missing data we have}
+print("number of missing id")
+sum(is.na(bp_data$id))
+
+print("number of missing id_visit_date")
+sum(is.na(bp_data$id_visit_date))
+
+print("Number of missing age_to_use")
+sum(is.na(bp_data$age_to_use))
+```
+
+
+```{r, end of file so save all the listed dataframes into the parent directory}
+save_bp_files_function(
+  parent_directory=location_of_data_files,
+  parent_file="file_17")
+Sys.time()
+```
